@@ -226,3 +226,44 @@ class RubricRead(RubricBase):
     id: int
     created_at: datetime
     criteria: list[RubricCriterionRead]
+
+
+class ComparisonRubricSummary(SQLModel):
+    id: int
+    name: str
+    version: int
+    pass_threshold: int
+
+
+class ComparisonCriterionAverage(SQLModel):
+    criterion_id: int
+    criterion_name: str
+    weight: float
+    required: bool
+    average_score: float
+
+
+class ComparisonResponseResult(SQLModel):
+    rank: int
+    response_id: int
+    model_name: str
+    response_text: str
+    latency_ms: int | None
+    evaluation_count: int
+    average_overall_score: float
+    pass_rate: float
+    latest_evaluated_at: datetime
+    criterion_averages: list[ComparisonCriterionAverage]
+
+
+class PromptComparisonRead(SQLModel):
+    prompt_id: int
+    prompt_title: str
+    prompt_use_case: str
+    rubric: ComparisonRubricSummary
+    response_count: int
+    compared_response_count: int
+    comparison_ready: bool
+    winner_response_id: int | None
+    unscored_response_ids: list[int]
+    results: list[ComparisonResponseResult]

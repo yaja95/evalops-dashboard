@@ -13,13 +13,15 @@ Before marking anything "Done" in the ledger:
 - Re-run the checks: `uv run ruff check .`, `uv run alembic upgrade head`, `uv run pytest`. A milestone isn't done because someone said tests pass — it's done because you ran them and they passed.
 - If a milestone is claimed to be in progress or complete on the Codex/ChatGPT side but there's no corresponding commit/branch/PR in `yaja95/evalops-dashboard`, treat it as not started and say so plainly. Milestone 6 in the ledger is the current example of this.
 
-## 3. Watch for these two recurring bug classes
+## 3. Watch for these recurring bug classes
 
-Both have already bitten this project once — see `LEDGER.md` for the specific commits.
+All three have already bitten this project once — see `LEDGER.md` for the specific commits.
 
 **Rounding-before-decision.** Any time a feature ranks, sorts, gates, or branches on a score, check whether it's operating on a rounded/display value or the raw underlying value. Reference case: Milestone 5 (`comparison.py`) initially ranked responses on the rounded `average_overall_score`, which could produce wrong tie-breaks; fixed by ranking on separate `raw_average_overall_score`/`raw_pass_rate` fields instead. When reviewing new scoring/ranking/comparison code, explicitly check which value (raw vs. rounded) feeds the decision.
 
 **Fake rollback tests.** Tests that assume database isolation between test runs without enforcing or verifying it. Reference case: Milestone 3's first pass of `tests/conftest.py` didn't guarantee the test engine was actually isolated; fixed by adding a hard `RuntimeError` guard on `engine.url` plus an `autouse` fixture that explicitly drops/recreates all tables around every test. When reviewing new test setup/teardown code, check that isolation is enforced (asserted or structurally guaranteed), not just assumed because a fixture exists.
+
+**Content-present tests hiding layout bugs.** HTML tests that assert a string appears somewhere in `response.text` can pass while the feature is visually broken — presence in the markup is not the same as being visible/usable. Reference case: Milestone 7's "Winner" badge was present in the HTML and passed every test, but was actually invisible in a real browser because it sat inside a `text-overflow: ellipsis`-truncated span and got clipped whenever the label overflowed. Caught only by an actual browser screenshot, not by curl or pytest. For any dashboard/UI milestone, a real browser check (not just `response.text` assertions) is required before marking it verified — see Rule 2.
 
 ## 4. The "already approved" instruction is for Codex prompts, not for Claude Code's own behavior here
 

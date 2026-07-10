@@ -1,4 +1,3 @@
-from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -10,12 +9,12 @@ from evalops_dashboard.database import engine, get_session
 from evalops_dashboard.models import (
     AnalyticsSummary,
     Evaluation,
-    EvaluationCreate,
     ModelResponse,
     ModelResponseCreate,
     Prompt,
     PromptCreate,
 )
+from evalops_dashboard.routers.evaluations import router as evaluations_router
 from evalops_dashboard.routers.rubrics import router as rubrics_router
 from evalops_dashboard.seed import seed_database
 
@@ -32,9 +31,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="evalops-dashboard",
     summary="A lightweight AI evaluation operations API.",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
+app.include_router(evaluations_router)
 app.include_router(rubrics_router)
 
 
@@ -49,49 +49,29 @@ def get_analytics_summary(session: SessionDep) -> AnalyticsSummary:
     responses = list(session.exec(select(ModelResponse)).all())
     evaluations = list(session.exec(select(Evaluation)).all())
 
-    evaluation_count = len(evaluations)
-    failure_categories = [
-        evaluation.failure_category
-        for evaluation in evaluations
-        if evaluation.failure_category is not None
-    ]
-
     return AnalyticsSummary(
         prompt_count=len(prompts),
         response_count=len(responses),
-        evaluation_count=evaluation_count,
+        evaluation_count=len(evaluations),
         average_overall_score=average_score(
             [evaluation.overall_score for evaluation in evaluations]
         ),
-        average_truthfulness_score=average_score(
-            [evaluation.truthfulness_score for evaluation in evaluations]
-        ),
-        most_common_failure_category=most_common_value(failure_categories),
         pass_rate=calculate_pass_rate(evaluations),
     )
 
 
-def average_score(scores: list[int]) -> float | None:
+def average_score(scores: list[float]) -> float | None:
     if not scores:
         return None
 
     return round(sum(scores) / len(scores), 2)
 
 
-def most_common_value(values: list[str]) -> str | None:
-    if not values:
-        return None
-
-    return Counter(values).most_common(1)[0][0]
-
-
 def calculate_pass_rate(evaluations: list[Evaluation]) -> float:
     if not evaluations:
         return 0.0
 
-    passing_evaluations = [
-        evaluation for evaluation in evaluations if evaluation.overall_score >= 4
-    ]
+    passing_evaluations = [evaluation for evaluation in evaluations if evaluation.passed]
     return round(len(passing_evaluations) / len(evaluations), 2)
 
 
@@ -131,27 +111,3 @@ def create_model_response(
     session.commit()
     session.refresh(model_response)
     return model_response
-
-
-@app.get("/evaluations", response_model=list[Evaluation])
-def list_evaluations(session: SessionDep) -> list[Evaluation]:
-    return list(session.exec(select(Evaluation)).all())
-
-
-@app.post("/evaluations", response_model=Evaluation, status_code=status.HTTP_201_CREATED)
-def create_evaluation(
-    evaluation_create: EvaluationCreate,
-    session: SessionDep,
-) -> Evaluation:
-    model_response = session.get(ModelResponse, evaluation_create.response_id)
-    if model_response is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Model response {evaluation_create.response_id} was not found.",
-        )
-
-    evaluation = Evaluation.model_validate(evaluation_create)
-    session.add(evaluation)
-    session.commit()
-    session.refresh(evaluation)
-    return evaluation

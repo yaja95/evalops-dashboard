@@ -141,6 +141,18 @@ def test_rejects_invalid_score_range() -> None:
     assert response.status_code == 422
 
 
+def test_rejects_required_criterion_that_cannot_meet_pass_threshold() -> None:
+    payload = rubric_payload("Impossible Required Criterion Rubric", 1)
+    payload["pass_threshold"] = 4
+    payload["criteria"][0]["required"] = True
+    payload["criteria"][0]["max_score"] = 3
+
+    with TestClient(app) as client:
+        response = client.post("/rubrics", json=payload)
+
+    assert response.status_code == 422
+
+
 def test_rejects_duplicate_rubric_name_and_version() -> None:
     payload = rubric_payload("Duplicate Rubric Version", 1)
 

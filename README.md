@@ -1,12 +1,12 @@
 # evalops-dashboard
 
-`evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, and rubric-based evaluations.
+`evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
 ## Business Problem
 
 Teams experimenting with AI often collect prompts, outputs, and quality judgments in scattered spreadsheets or chat threads. That makes it hard to compare model behavior, audit decisions, or understand whether changes are improving quality.
 
-This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, evaluate it against a rubric, and make the records available through a simple API.
+This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
 ## User
 
@@ -30,11 +30,19 @@ The first user is an AI product or operations team that needs a practical way to
 - Seed data for a sample support-triage evaluation
 - Prompt records
 - Model response records
-- Rubric-based evaluation records with instruction following, truthfulness, completeness, conciseness, safety, writing style, and overall scores
-- Reusable rubric templates with weighted criteria for future evaluation scoring workflows
-- Analytics summary for counts, average scores, most common failure category, and pass rate
+- Reusable rubric templates with weighted criteria
+- Rubric-driven evaluations with criterion-level score records
+- Server-calculated weighted overall scores and pass/fail results
+- Analytics summary for counts, average overall score, and pass rate
 - Basic create/list API routes
-- Test coverage for health and seeded data
+- Behavioral test coverage for scoring, validation, migrations, and seeded data
+
+## Business Value
+
+- Consistent scoring through reusable evaluation policies.
+- Auditable criterion-level judgments instead of opaque overall scores.
+- Server-controlled results so clients cannot submit their own pass/fail outcome.
+- Model-response comparison readiness once multiple responses are evaluated with the same rubric.
 
 ## Local Setup
 
@@ -96,6 +104,27 @@ uv run alembic upgrade head
 
 Do not use `alembic stamp head` unless you have manually verified that the existing database schema exactly matches the migration history.
 
+The `20260710_0002` migration is a breaking pre-release migration. It replaces the old fixed-column evaluation schema with rubric-driven evaluations and criterion-score records. Existing evaluation rows are reset during the migration; prompts, model responses, rubrics, and rubric criteria are preserved. Downgrading restores the previous schema shape but does not restore deleted evaluation rows.
+
+## Evaluation Scoring
+
+Evaluations are created against an existing model response and an existing rubric. Clients submit exactly one score for each criterion in that rubric. The API validates the scores, calculates the weighted result, and stores the calculated outcome.
+
+Formula:
+
+```text
+sum(score * criterion weight) / sum(criterion weights)
+```
+
+The stored `overall_score` is rounded to two decimal places.
+
+An evaluation passes only when:
+
+- The weighted overall score is greater than or equal to the rubric `pass_threshold`.
+- Every required criterion has a score greater than or equal to the rubric `pass_threshold`.
+
+A non-required criterion may fall below the threshold if the weighted overall score still passes.
+
 ## Example API Calls
 
 Create a prompt:
@@ -124,18 +153,57 @@ curl -X POST http://127.0.0.1:8000/evaluations \
   -H "Content-Type: application/json" \
   -d '{
     "response_id": 1,
-    "rubric_name": "Support urgency rubric v1",
-    "instruction_following_score": 5,
-    "truthfulness_score": 5,
-    "completeness_score": 4,
-    "conciseness_score": 4,
-    "safety_score": 5,
-    "writing_style_score": 4,
-    "overall_score": 5,
-    "failure_category": null,
-    "justification": "Correctly identifies production downtime and recommends escalation.",
-    "evaluator": "ajay"
+    "rubric_id": 1,
+    "justification": "The response followed the task and was accurate.",
+    "evaluator": "ajay",
+    "scores": [
+      {
+        "criterion_id": 1,
+        "score": 5,
+        "notes": "Directly answered the request."
+      },
+      {
+        "criterion_id": 2,
+        "score": 4,
+        "notes": "Accurate with minor room for clarification."
+      }
+    ]
   }'
+```
+
+Representative response:
+
+```json
+{
+  "id": 1,
+  "response_id": 1,
+  "rubric_id": 1,
+  "rubric_name": "Support Response Quality",
+  "rubric_version": 1,
+  "overall_score": 4.67,
+  "passed": true,
+  "justification": "The response followed the task and was accurate.",
+  "evaluator": "ajay",
+  "created_at": "2026-07-10T12:00:00",
+  "scores": [
+    {
+      "criterion_id": 1,
+      "criterion_name": "Instruction Following",
+      "score": 5,
+      "weight": 2,
+      "required": true,
+      "notes": "Directly answered the request."
+    },
+    {
+      "criterion_id": 2,
+      "criterion_name": "Accuracy",
+      "score": 4,
+      "weight": 1,
+      "required": true,
+      "notes": "Accurate with minor room for clarification."
+    }
+  ]
+}
 ```
 
 Create a reusable rubric template:
@@ -169,7 +237,7 @@ curl -X POST http://127.0.0.1:8000/rubrics \
   }'
 ```
 
-Rubric templates define the criteria and weights that future evaluation workflows will use. Per-criterion evaluation scoring is the next planned feature.
+Rubric templates define the criteria and weights that evaluation workflows use.
 
 Get an analytics summary:
 
@@ -185,8 +253,6 @@ Example response:
   "response_count": 6,
   "evaluation_count": 6,
   "average_overall_score": 4.2,
-  "average_truthfulness_score": 4.0,
-  "most_common_failure_category": "unsupported_claim",
   "pass_rate": 0.83
 }
 ```
@@ -201,21 +267,26 @@ evalops-dashboard/
     script.py.mako
     versions/
       20260710_0001_initial_schema.py
+      20260710_0002_rubric_driven_evaluations.py
   alembic.ini
   src/evalops_dashboard/
     routers/
       __init__.py
+      evaluations.py
       rubrics.py
     __init__.py
     database.py
     main.py
     models.py
+    scoring.py
     seed.py
   tests/
     conftest.py
     test_app.py
+    test_evaluations.py
     test_migrations.py
     test_rubrics.py
+    test_scoring.py
   AGENTS.md
   pyproject.toml
   README.md
@@ -224,7 +295,7 @@ evalops-dashboard/
 ## Future Roadmap
 
 - Add a simple web dashboard for browsing prompts, responses, and evaluations.
-- Add per-criterion scoring that applies rubric templates to model responses.
+- Add generic per-criterion analytics across rubrics and models.
 - Add CSV import/export for evaluation batches.
 - Add model/provider metadata and cost tracking.
 - Add authentication for internal team usage.

@@ -30,15 +30,42 @@ class ModelResponseBase(SQLModel):
     model_name: str = Field(min_length=1, max_length=120)
     response_text: str = Field(min_length=1)
     latency_ms: int | None = Field(default=None, ge=0)
+    provider: str | None = Field(default=None, max_length=120)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
 
 
 class ModelResponse(ModelResponseBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=utc_now)
+    cost_usd: float | None = Field(default=None)
 
 
 class ModelResponseCreate(ModelResponseBase):
-    pass
+    model_config = ConfigDict(extra="forbid")
+
+
+class ModelPricingBase(SQLModel):
+    provider: str = Field(min_length=1, max_length=120)
+    model_name: str = Field(min_length=1, max_length=120)
+    input_price_per_1k_tokens: float = Field(ge=0)
+    output_price_per_1k_tokens: float = Field(ge=0)
+
+
+class ModelPricing(ModelPricingBase, table=True):
+    __table_args__ = (UniqueConstraint("provider", "model_name"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ModelPricingCreate(ModelPricingBase):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ModelPricingRead(ModelPricingBase):
+    id: int
+    created_at: datetime
 
 
 class EvaluationBase(SQLModel):

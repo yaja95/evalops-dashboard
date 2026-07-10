@@ -26,8 +26,27 @@ def test_alembic_upgrade_head_creates_expected_schema(
         "criterionscore",
         "rubric",
         "rubriccriterion",
+        "modelpricing",
     }
     assert expected_tables.issubset(first_table_names)
+    assert_columns_include(
+        database_url,
+        "modelresponse",
+        {"provider", "input_tokens", "output_tokens", "cost_usd"},
+    )
+    assert_columns_include(
+        database_url,
+        "modelpricing",
+        {
+            "id",
+            "provider",
+            "model_name",
+            "input_price_per_1k_tokens",
+            "output_price_per_1k_tokens",
+            "created_at",
+        },
+    )
+    assert_unique_constraint_exists(database_url, "modelpricing", {"provider", "model_name"})
     assert_columns_include(
         database_url,
         "evaluation",
@@ -136,6 +155,12 @@ def test_baseline_to_head_migration_preserves_configuration_and_resets_evaluatio
         "evaluation",
         {"id", "response_id", "rubric_id", "overall_score", "passed"},
     )
+    assert_columns_include(
+        database_url,
+        "modelresponse",
+        {"provider", "input_tokens", "output_tokens", "cost_usd"},
+    )
+    assert "modelpricing" in get_table_names(database_url)
 
 
 def insert_baseline_records(database_url: str) -> None:

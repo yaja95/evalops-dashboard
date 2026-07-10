@@ -1,8 +1,10 @@
 from sqlmodel import Session, select
 
+from evalops_dashboard.cost import calculate_cost
 from evalops_dashboard.models import (
     CriterionScore,
     Evaluation,
+    ModelPricing,
     ModelResponse,
     Prompt,
     Rubric,
@@ -13,11 +15,13 @@ from evalops_dashboard.scoring import ScoredCriterion, calculate_scoring_result
 SEED_PROMPT_TITLE = "Classify support ticket urgency"
 SEED_RUBRIC_NAME = "Support Response Quality"
 SEED_RUBRIC_VERSION = 1
+SEED_PROVIDER = "openai-example"
 
 
 def seed_database(session: Session) -> None:
+    pricing = ensure_seed_pricing(session)
     prompt = ensure_seed_prompt(session)
-    responses = ensure_seed_responses(session, prompt)
+    responses = ensure_seed_responses(session, prompt, pricing)
     rubric = ensure_seed_rubric(session)
     criteria = ensure_seed_criteria(session, rubric)
     ensure_seed_evaluation(
@@ -52,6 +56,47 @@ def seed_database(session: Session) -> None:
     )
 
 
+def ensure_seed_pricing(session: Session) -> dict[str, ModelPricing]:
+    expected_pricing = [
+        ModelPricing(
+            provider=SEED_PROVIDER,
+            model_name="gpt-example-ops",
+            input_price_per_1k_tokens=0.01,
+            output_price_per_1k_tokens=0.03,
+        ),
+        ModelPricing(
+            provider=SEED_PROVIDER,
+            model_name="gpt-example-balanced",
+            input_price_per_1k_tokens=0.005,
+            output_price_per_1k_tokens=0.015,
+        ),
+        ModelPricing(
+            provider=SEED_PROVIDER,
+            model_name="gpt-example-fast-draft",
+            input_price_per_1k_tokens=0.001,
+            output_price_per_1k_tokens=0.002,
+        ),
+    ]
+    existing_pricing = {
+        pricing.model_name: pricing
+        for pricing in session.exec(
+            select(ModelPricing).where(ModelPricing.provider == SEED_PROVIDER)
+        ).all()
+    }
+
+    for pricing in expected_pricing:
+        if pricing.model_name not in existing_pricing:
+            session.add(pricing)
+    session.commit()
+
+    return {
+        pricing.model_name: pricing
+        for pricing in session.exec(
+            select(ModelPricing).where(ModelPricing.provider == SEED_PROVIDER)
+        ).all()
+    }
+
+
 def ensure_seed_prompt(session: Session) -> Prompt:
     prompt = session.exec(select(Prompt).where(Prompt.title == SEED_PROMPT_TITLE)).first()
     if prompt is not None:
@@ -72,7 +117,29 @@ def ensure_seed_prompt(session: Session) -> Prompt:
     return prompt
 
 
-def ensure_seed_responses(session: Session, prompt: Prompt) -> dict[str, ModelResponse]:
+def ensure_seed_responses(
+    session: Session,
+    prompt: Prompt,
+    pricing: dict[str, ModelPricing],
+) -> dict[str, ModelResponse]:
+    seed_tokens = {
+        "gpt-example-ops": (1200, 340),
+        "gpt-example-balanced": (1200, 280),
+        "gpt-example-fast-draft": (1200, 90),
+    }
+
+    def seed_cost(model_name: str) -> float | None:
+        model_pricing = pricing.get(model_name)
+        if model_pricing is None:
+            return None
+        input_tokens, output_tokens = seed_tokens[model_name]
+        return calculate_cost(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            input_price_per_1k_tokens=model_pricing.input_price_per_1k_tokens,
+            output_price_per_1k_tokens=model_pricing.output_price_per_1k_tokens,
+        )
+
     expected_responses = [
         ModelResponse(
             prompt_id=prompt.id or 0,
@@ -82,6 +149,10 @@ def ensure_seed_responses(session: Session, prompt: Prompt) -> dict[str, ModelRe
                 "immediate help, so the issue should be routed to the on-call support queue."
             ),
             latency_ms=842,
+            provider=SEED_PROVIDER,
+            input_tokens=seed_tokens["gpt-example-ops"][0],
+            output_tokens=seed_tokens["gpt-example-ops"][1],
+            cost_usd=seed_cost("gpt-example-ops"),
         ),
         ModelResponse(
             prompt_id=prompt.id or 0,
@@ -91,12 +162,20 @@ def ensure_seed_responses(session: Session, prompt: Prompt) -> dict[str, ModelRe
                 "Escalate to support and ask for affected service details."
             ),
             latency_ms=620,
+            provider=SEED_PROVIDER,
+            input_tokens=seed_tokens["gpt-example-balanced"][0],
+            output_tokens=seed_tokens["gpt-example-balanced"][1],
+            cost_usd=seed_cost("gpt-example-balanced"),
         ),
         ModelResponse(
             prompt_id=prompt.id or 0,
             model_name="gpt-example-fast-draft",
             response_text=("This appears urgent. A support teammate should review the issue soon."),
             latency_ms=210,
+            provider=SEED_PROVIDER,
+            input_tokens=seed_tokens["gpt-example-fast-draft"][0],
+            output_tokens=seed_tokens["gpt-example-fast-draft"][1],
+            cost_usd=seed_cost("gpt-example-fast-draft"),
         ),
     ]
     existing_responses = {

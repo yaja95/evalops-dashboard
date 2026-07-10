@@ -10,6 +10,12 @@
   <dd>{{ response.response_text }}</dd>
   <dt>Latency (ms)</dt>
   <dd>{{ response.latency_ms if response.latency_ms is not none else "—" }}</dd>
+  <dt>Provider</dt>
+  <dd>{{ response.provider if response.provider is not none else "—" }}</dd>
+  <dt>Tokens (input / output)</dt>
+  <dd>{{ response.input_tokens if response.input_tokens is not none else "—" }} / {{ response.output_tokens if response.output_tokens is not none else "—" }}</dd>
+  <dt>Cost</dt>
+  <dd>{{ "$%.6f"|format(response.cost_usd) if response.cost_usd is not none else "—" }}</dd>
   <dt>Created</dt>
   <dd>{{ response.created_at }}</dd>
 </dl>

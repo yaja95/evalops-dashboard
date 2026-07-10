@@ -17,10 +17,39 @@ SEED_RUBRIC_VERSION = 1
 
 def seed_database(session: Session) -> None:
     prompt = ensure_seed_prompt(session)
-    response = ensure_seed_response(session, prompt)
+    responses = ensure_seed_responses(session, prompt)
     rubric = ensure_seed_rubric(session)
     criteria = ensure_seed_criteria(session, rubric)
-    ensure_seed_evaluation(session, response, rubric, criteria)
+    ensure_seed_evaluation(
+        session,
+        responses["gpt-example-ops"],
+        rubric,
+        criteria,
+        scores_by_name={
+            "Instruction Following": 5,
+            "Operational Accuracy": 5,
+            "Clarity": 4,
+        },
+        justification=(
+            "Correctly identifies production downtime as high urgency and gives a clear "
+            "operational escalation path."
+        ),
+    )
+    ensure_seed_evaluation(
+        session,
+        responses["gpt-example-balanced"],
+        rubric,
+        criteria,
+        scores_by_name={
+            "Instruction Following": 4,
+            "Operational Accuracy": 4,
+            "Clarity": 5,
+        },
+        justification=(
+            "Classifies the issue correctly, but the operational escalation guidance is "
+            "less direct than the strongest response."
+        ),
+    )
 
 
 def ensure_seed_prompt(session: Session) -> Prompt:
@@ -43,29 +72,52 @@ def ensure_seed_prompt(session: Session) -> Prompt:
     return prompt
 
 
-def ensure_seed_response(session: Session, prompt: Prompt) -> ModelResponse:
-    response = session.exec(
-        select(ModelResponse).where(
-            ModelResponse.prompt_id == prompt.id,
-            ModelResponse.model_name == "gpt-example-ops",
-        )
-    ).first()
-    if response is not None:
-        return response
-
-    response = ModelResponse(
-        prompt_id=prompt.id or 0,
-        model_name="gpt-example-ops",
-        response_text=(
-            "High urgency. The customer reports production downtime and asks for immediate "
-            "help, so the issue should be routed to the on-call support queue."
+def ensure_seed_responses(session: Session, prompt: Prompt) -> dict[str, ModelResponse]:
+    expected_responses = [
+        ModelResponse(
+            prompt_id=prompt.id or 0,
+            model_name="gpt-example-ops",
+            response_text=(
+                "High urgency. The customer reports production downtime and asks for "
+                "immediate help, so the issue should be routed to the on-call support queue."
+            ),
+            latency_ms=842,
         ),
-        latency_ms=842,
-    )
-    session.add(response)
+        ModelResponse(
+            prompt_id=prompt.id or 0,
+            model_name="gpt-example-balanced",
+            response_text=(
+                "High urgency because the customer says production is unavailable. "
+                "Escalate to support and ask for affected service details."
+            ),
+            latency_ms=620,
+        ),
+        ModelResponse(
+            prompt_id=prompt.id or 0,
+            model_name="gpt-example-fast-draft",
+            response_text=("This appears urgent. A support teammate should review the issue soon."),
+            latency_ms=210,
+        ),
+    ]
+    existing_responses = {
+        response.model_name: response
+        for response in session.exec(
+            select(ModelResponse).where(ModelResponse.prompt_id == prompt.id)
+        ).all()
+    }
+
+    for response in expected_responses:
+        if response.model_name not in existing_responses:
+            session.add(response)
     session.commit()
-    session.refresh(response)
-    return response
+
+    return {
+        response.model_name: response
+        for response in session.exec(
+            select(ModelResponse).where(ModelResponse.prompt_id == prompt.id)
+        ).all()
+        if response.model_name in {expected.model_name for expected in expected_responses}
+    }
 
 
 def ensure_seed_rubric(session: Session) -> Rubric:
@@ -146,6 +198,8 @@ def ensure_seed_evaluation(
     response: ModelResponse,
     rubric: Rubric,
     criteria: list[RubricCriterion],
+    scores_by_name: dict[str, int],
+    justification: str,
 ) -> None:
     existing_evaluation = session.exec(
         select(Evaluation).where(
@@ -157,11 +211,6 @@ def ensure_seed_evaluation(
     if existing_evaluation is not None:
         return
 
-    scores_by_name = {
-        "Instruction Following": 5,
-        "Operational Accuracy": 5,
-        "Clarity": 4,
-    }
     scoring_result = calculate_scoring_result(
         [
             ScoredCriterion(
@@ -178,10 +227,7 @@ def ensure_seed_evaluation(
         rubric_id=rubric.id or 0,
         overall_score=scoring_result.overall_score,
         passed=scoring_result.passed,
-        justification=(
-            "Correctly identifies production downtime as high urgency and gives a clear "
-            "operational escalation path."
-        ),
+        justification=justification,
         evaluator="seed",
     )
     session.add(evaluation)

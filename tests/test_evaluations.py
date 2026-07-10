@@ -377,6 +377,8 @@ def test_analytics_use_calculated_scores_and_stored_pass_fail() -> None:
         client.post("/evaluations", json=evaluation_payload(response_id, rubric, scores=[3, 5]))
 
         summary_response = client.get("/analytics/summary")
+        prompts_response = client.get("/prompts")
+        responses_response = client.get("/responses")
         evaluations_response = client.get("/evaluations")
 
     evaluations = evaluations_response.json()
@@ -389,8 +391,8 @@ def test_analytics_use_calculated_scores_and_stored_pass_fail() -> None:
         2,
     )
     assert summary_response.json() == {
-        "prompt_count": len({evaluation["response_id"] for evaluation in evaluations}),
-        "response_count": len(evaluations),
+        "prompt_count": len(prompts_response.json()),
+        "response_count": len(responses_response.json()),
         "evaluation_count": len(evaluations),
         "average_overall_score": average_overall_score,
         "pass_rate": pass_rate,

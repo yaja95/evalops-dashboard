@@ -14,6 +14,7 @@ from evalops_dashboard.models import (
     Prompt,
     PromptCreate,
 )
+from evalops_dashboard.routers.comparisons import router as comparisons_router
 from evalops_dashboard.routers.evaluations import router as evaluations_router
 from evalops_dashboard.routers.rubrics import router as rubrics_router
 from evalops_dashboard.seed import seed_database
@@ -31,11 +32,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="evalops-dashboard",
     summary="A lightweight AI evaluation operations API.",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 app.include_router(evaluations_router)
 app.include_router(rubrics_router)
+app.include_router(comparisons_router)
 
 
 @app.get("/health")

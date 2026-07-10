@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.4.0`
+Current version: `0.5.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` adds a read-only web dashboard for browsing that data without hand-writing API calls.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` adds comparison charts to the dashboard so that comparison is visual, not just tabular.
 
 ## User
 
@@ -42,6 +42,7 @@ The first user is an AI product or operations team that needs a practical way to
 - Analytics summary for counts, average overall score, and pass rate
 - Basic create/list API routes
 - Server-rendered web dashboard for browsing prompts, responses, rubrics, and evaluations (`/dashboard`)
+- Comparison charts on the dashboard (quality, pass rate, criterion performance, latency) with rubric selection, built as static server-rendered bar charts with no client-side JavaScript
 - Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, and seeded data
 
 ## Business Value
@@ -170,8 +171,9 @@ A read-only, server-rendered dashboard (Jinja2 templates, no JavaScript framewor
 - `/dashboard/responses`, `/dashboard/responses/{id}` — model response list and detail (with its evaluations)
 - `/dashboard/rubrics`, `/dashboard/rubrics/{id}` — rubric list and detail (with its criteria)
 - `/dashboard/evaluations`, `/dashboard/evaluations/{id}` — evaluation list and detail (with per-criterion scores)
+- `/dashboard/prompts/{id}/comparison` — comparison charts (quality, pass rate, criterion performance, latency) for a prompt's model responses under a selected rubric, visualizing `GET /prompts/{id}/comparison`. If a prompt has evaluations under more than one rubric, a plain HTML form lets you pick which one; with exactly one applicable rubric it's auto-selected. Charts are static server-rendered bars (widths computed server-side, no client-side JavaScript) — consistent with the rest of the dashboard.
 
-This is browsing-only: there are no create/edit forms and no comparison charts yet. Use the JSON API above for writes, and `GET /prompts/{id}/comparison` directly for model comparisons — visualizing that endpoint in the dashboard is the next roadmap item.
+This is still browsing-only: there are no create/edit forms. Use the JSON API above for writes.
 
 ## Example API Calls
 
@@ -379,11 +381,13 @@ evalops-dashboard/
       dashboard.css
     templates/
       partials/
+        bar_chart.html
         empty_state.html
       base.html
       evaluation_detail.html
       evaluations_list.html
       index.html
+      prompt_comparison.html
       prompt_detail.html
       prompts_list.html
       response_detail.html
@@ -403,6 +407,7 @@ evalops-dashboard/
     test_comparison.py
     test_comparisons.py
     test_dashboard.py
+    test_dashboard_comparison.py
     test_evaluations.py
     test_migrations.py
     test_rubrics.py
@@ -414,7 +419,6 @@ evalops-dashboard/
 
 ## Future Roadmap
 
-- Add comparison charts to the web dashboard (quality, pass rate, criterion performance, latency), building on `GET /prompts/{id}/comparison`.
 - Add CSV import/export for evaluation batches.
 - Add model/provider metadata and cost tracking.
 - Add generic per-criterion analytics across rubrics and models.

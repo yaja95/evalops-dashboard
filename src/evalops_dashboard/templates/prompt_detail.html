@@ -3,6 +3,7 @@
 {% block content %}
 <div class="breadcrumb"><a href="/dashboard">Dashboard</a> / <a href="/dashboard/prompts">Prompts</a> / {{ prompt.title }}</div>
 <h1>{{ prompt.title }}</h1>
+<p><a href="/dashboard/prompts/{{ prompt.id }}/comparison">Compare model responses →</a></p>
 <dl class="detail-fields">
   <dt>Content</dt>
   <dd>{{ prompt.content }}</dd>

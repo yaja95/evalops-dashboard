@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "partials/bar_chart.html" import bar_chart %}
+{% block title %}Comparison · {{ prompt.title }} · EvalOps Dashboard{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/dashboard">Dashboard</a> / <a href="/dashboard/prompts">Prompts</a> / <a href="/dashboard/prompts/{{ prompt.id }}">{{ prompt.title }}</a> / Comparison</div>
+<h1>Comparison</h1>
+
+{% if not applicable_rubrics %}
+{% with message = "No rubric has evaluated any responses for this prompt yet." %}{% include "partials/empty_state.html" %}{% endwith %}
+{% else %}
+
+{% if applicable_rubrics|length > 1 %}
+<form class="rubric-select-form" method="get" action="/dashboard/prompts/{{ prompt.id }}/comparison">
+  <label for="rubric_id">Rubric</label>
+  <select name="rubric_id" id="rubric_id">
+    {% for rubric in applicable_rubrics %}
+    <option value="{{ rubric.id }}" {% if rubric.id == selected_rubric_id %}selected{% endif %}>{{ rubric.name }} v{{ rubric.version }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Compare</button>
+</form>
+{% endif %}
+
+{% if not selected_rubric_id %}
+{% with message = "Select a rubric above to view the comparison." %}{% include "partials/empty_state.html" %}{% endwith %}
+{% elif not comparison.comparison_ready %}
+{% with message = "Not enough evaluated responses yet under this rubric to compare (need at least 2)." %}{% include "partials/empty_state.html" %}{% endwith %}
+{% if comparison.unscored_response_ids %}
+<section>
+  <h2>Awaiting Evaluation</h2>
+  <ul>
+    {% for response_id in comparison.unscored_response_ids %}
+    <li><a href="/dashboard/responses/{{ response_id }}">Response #{{ response_id }}</a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% else %}
+
+<dl class="detail-fields">
+  <dt>Rubric</dt>
+  <dd><a href="/dashboard/rubrics/{{ comparison.rubric.id }}">{{ comparison.rubric.name }} v{{ comparison.rubric.version }}</a></dd>
+  <dt>Compared responses</dt>
+  <dd>{{ comparison.compared_response_count }} of {{ comparison.response_count }}</dd>
+  {% for result in comparison.results %}
+  {% if result.response_id == comparison.winner_response_id %}
+  <dt>Winner</dt>
+  <dd><a href="/dashboard/responses/{{ result.response_id }}">{{ result.model_name }}</a></dd>
+  {% endif %}
+  {% endfor %}
+</dl>
+
+<section>
+  {{ bar_chart("Quality (overall score)", chart_data.quality, "out of 5.00") }}
+</section>
+
+<section>
+  {{ bar_chart("Pass Rate", chart_data.pass_rate) }}
+</section>
+
+<section>
+  {{ bar_chart("Latency", chart_data.latency, "lower is faster") }}
+</section>
+
+<section>
+  <h2>Criterion Performance</h2>
+  {% for criterion_chart in chart_data.criteria %}
+  {{ bar_chart(criterion_chart.title, criterion_chart.rows, "out of 5.00") }}
+  {% endfor %}
+</section>
+
+{% if comparison.unscored_response_ids %}
+<section>
+  <h2>Awaiting Evaluation</h2>
+  <ul>
+    {% for response_id in comparison.unscored_response_ids %}
+    <li><a href="/dashboard/responses/{{ response_id }}">Response #{{ response_id }}</a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% endif %}
+{% endif %}
+{% endblock %}

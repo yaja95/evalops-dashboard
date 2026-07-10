@@ -26,7 +26,7 @@ The first user is an AI product or operations team that needs a practical way to
 ## Current Features
 
 - `GET /health` health check
-- SQLite schema creation on app startup
+- Alembic-managed SQLite schema migrations
 - Seed data for a sample support-triage evaluation
 - Prompt records
 - Model response records
@@ -44,10 +44,10 @@ Install dependencies:
 uv sync
 ```
 
-If you already ran `uv sync` before this project had packaging metadata, rerun it once:
+Initialize or update your local database:
 
 ```bash
-uv sync --reinstall
+uv run alembic upgrade head
 ```
 
 Run the API:
@@ -68,6 +68,33 @@ uv run ruff format .
 uv run ruff check .
 uv run pytest
 ```
+
+## Database Migrations
+
+This project uses Alembic for database schema changes. The app no longer creates or modifies tables during startup; startup only seeds demo data after the database schema already exists.
+
+For a new local database:
+
+```bash
+uv run alembic upgrade head
+uv run uvicorn --app-dir src evalops_dashboard.main:app --reload
+```
+
+For future schema changes:
+
+```bash
+uv run alembic upgrade head
+```
+
+If your local `evalops.db` was created by an older pre-migration version of the app, this pre-release portfolio project may be easiest to reset by backing up and removing the old database, then applying the baseline migration:
+
+```bash
+cp evalops.db evalops.db.backup
+rm evalops.db
+uv run alembic upgrade head
+```
+
+Do not use `alembic stamp head` unless you have manually verified that the existing database schema exactly matches the migration history.
 
 ## Example API Calls
 
@@ -169,6 +196,12 @@ Example response:
 ```text
 evalops-dashboard/
   .github/workflows/ci.yml
+  alembic/
+    env.py
+    script.py.mako
+    versions/
+      20260710_0001_initial_schema.py
+  alembic.ini
   src/evalops_dashboard/
     routers/
       __init__.py
@@ -179,7 +212,10 @@ evalops-dashboard/
     models.py
     seed.py
   tests/
+    conftest.py
     test_app.py
+    test_migrations.py
+    test_rubrics.py
   AGENTS.md
   pyproject.toml
   README.md

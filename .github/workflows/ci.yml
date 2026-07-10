@@ -29,6 +29,10 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      - name: Run migrations
+        run: uv run alembic upgrade head
+        env:
+          EVALOPS_DATABASE_URL: sqlite:///./ci_evalops.db
+
       - name: Test
         run: uv run pytest
-

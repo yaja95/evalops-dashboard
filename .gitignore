@@ -6,6 +6,8 @@ __pycache__/
 *.py[cod]
 *.sqlite
 *.db
+*.db.backup
+*.db.*_backup
 .pytest_cache/
 .ruff_cache/
 dist/

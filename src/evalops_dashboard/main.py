@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, status
 from sqlmodel import Session, select
 
-from evalops_dashboard.database import create_db_and_tables, engine, get_session
+from evalops_dashboard.database import engine, get_session
 from evalops_dashboard.models import (
     AnalyticsSummary,
     Evaluation,
@@ -24,7 +24,6 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    create_db_and_tables()
     with Session(engine) as session:
         seed_database(session)
     yield

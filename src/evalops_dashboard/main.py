@@ -1,3 +1,4 @@
+from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -7,6 +8,7 @@ from sqlmodel import Session, select
 
 from evalops_dashboard.database import create_db_and_tables, engine, get_session
 from evalops_dashboard.models import (
+    AnalyticsSummary,
     Evaluation,
     EvaluationCreate,
     ModelResponse,
@@ -38,6 +40,58 @@ app = FastAPI(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "evalops-dashboard"}
+
+
+@app.get("/analytics/summary", response_model=AnalyticsSummary)
+def get_analytics_summary(session: SessionDep) -> AnalyticsSummary:
+    prompts = list(session.exec(select(Prompt)).all())
+    responses = list(session.exec(select(ModelResponse)).all())
+    evaluations = list(session.exec(select(Evaluation)).all())
+
+    evaluation_count = len(evaluations)
+    failure_categories = [
+        evaluation.failure_category
+        for evaluation in evaluations
+        if evaluation.failure_category is not None
+    ]
+
+    return AnalyticsSummary(
+        prompt_count=len(prompts),
+        response_count=len(responses),
+        evaluation_count=evaluation_count,
+        average_overall_score=average_score(
+            [evaluation.overall_score for evaluation in evaluations]
+        ),
+        average_truthfulness_score=average_score(
+            [evaluation.truthfulness_score for evaluation in evaluations]
+        ),
+        most_common_failure_category=most_common_value(failure_categories),
+        pass_rate=calculate_pass_rate(evaluations),
+    )
+
+
+def average_score(scores: list[int]) -> float | None:
+    if not scores:
+        return None
+
+    return round(sum(scores) / len(scores), 2)
+
+
+def most_common_value(values: list[str]) -> str | None:
+    if not values:
+        return None
+
+    return Counter(values).most_common(1)[0][0]
+
+
+def calculate_pass_rate(evaluations: list[Evaluation]) -> float:
+    if not evaluations:
+        return 0.0
+
+    passing_evaluations = [
+        evaluation for evaluation in evaluations if evaluation.overall_score >= 4
+    ]
+    return round(len(passing_evaluations) / len(evaluations), 2)
 
 
 @app.get("/prompts", response_model=list[Prompt])

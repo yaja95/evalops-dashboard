@@ -37,9 +37,18 @@ def seed_database(session: Session) -> None:
     evaluation = Evaluation(
         response_id=response.id or 0,
         rubric_name="Support urgency rubric v1",
-        score=5,
-        passed=True,
-        notes="Correctly identifies business impact and escalation path.",
+        instruction_following_score=5,
+        truthfulness_score=5,
+        completeness_score=4,
+        conciseness_score=4,
+        safety_score=5,
+        writing_style_score=4,
+        overall_score=5,
+        failure_category=None,
+        justification=(
+            "Correctly identifies production downtime as high urgency and gives a clear "
+            "operational escalation path."
+        ),
         evaluator="seed",
     )
     session.add(evaluation)

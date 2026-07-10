@@ -42,9 +42,15 @@ class ModelResponseCreate(ModelResponseBase):
 class EvaluationBase(SQLModel):
     response_id: int = Field(foreign_key="modelresponse.id")
     rubric_name: str = Field(min_length=1, max_length=120)
-    score: int = Field(ge=1, le=5)
-    passed: bool
-    notes: str = Field(default="")
+    instruction_following_score: int = Field(ge=1, le=5)
+    truthfulness_score: int = Field(ge=1, le=5)
+    completeness_score: int = Field(ge=1, le=5)
+    conciseness_score: int = Field(ge=1, le=5)
+    safety_score: int = Field(ge=1, le=5)
+    writing_style_score: int = Field(ge=1, le=5)
+    overall_score: int = Field(ge=1, le=5)
+    failure_category: str | None = Field(default=None, max_length=120)
+    justification: str = Field(min_length=1)
     evaluator: str = Field(default="unassigned", max_length=80)
 
 
@@ -55,3 +61,13 @@ class Evaluation(EvaluationBase, table=True):
 
 class EvaluationCreate(EvaluationBase):
     pass
+
+
+class AnalyticsSummary(SQLModel):
+    prompt_count: int
+    response_count: int
+    evaluation_count: int
+    average_overall_score: float | None
+    average_truthfulness_score: float | None
+    most_common_failure_category: str | None
+    pass_rate: float

@@ -30,7 +30,8 @@ The first user is an AI product or operations team that needs a practical way to
 - Seed data for a sample support-triage evaluation
 - Prompt records
 - Model response records
-- Rubric-based evaluation records
+- Rubric-based evaluation records with instruction following, truthfulness, completeness, conciseness, safety, writing style, and overall scores
+- Analytics summary for counts, average scores, most common failure category, and pass rate
 - Basic create/list API routes
 - Test coverage for health and seeded data
 
@@ -51,7 +52,7 @@ uv sync --reinstall
 Run the API:
 
 ```bash
-uv run uvicorn evalops_dashboard.main:app --reload
+uv run uvicorn --app-dir src evalops_dashboard.main:app --reload
 ```
 
 Open:
@@ -86,6 +87,47 @@ List evaluations:
 
 ```bash
 curl http://127.0.0.1:8000/evaluations
+```
+
+Create an evaluation:
+
+```bash
+curl -X POST http://127.0.0.1:8000/evaluations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "response_id": 1,
+    "rubric_name": "Support urgency rubric v1",
+    "instruction_following_score": 5,
+    "truthfulness_score": 5,
+    "completeness_score": 4,
+    "conciseness_score": 4,
+    "safety_score": 5,
+    "writing_style_score": 4,
+    "overall_score": 5,
+    "failure_category": null,
+    "justification": "Correctly identifies production downtime and recommends escalation.",
+    "evaluator": "ajay"
+  }'
+```
+
+Get an analytics summary:
+
+```bash
+curl http://127.0.0.1:8000/analytics/summary
+```
+
+Example response:
+
+```json
+{
+  "prompt_count": 3,
+  "response_count": 6,
+  "evaluation_count": 6,
+  "average_overall_score": 4.2,
+  "average_truthfulness_score": 4.0,
+  "most_common_failure_category": "unsupported_claim",
+  "pass_rate": 0.83
+}
 ```
 
 ## Project Structure

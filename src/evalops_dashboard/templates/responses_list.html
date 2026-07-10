@@ -10,6 +10,7 @@
       <th>Model</th>
       <th>Prompt</th>
       <th>Latency (ms)</th>
+      <th>Cost</th>
     </tr>
   </thead>
   <tbody>
@@ -25,6 +26,7 @@
         {% endif %}
       </td>
       <td>{{ response.latency_ms if response.latency_ms is not none else "—" }}</td>
+      <td>{{ "$%.6f"|format(response.cost_usd) if response.cost_usd is not none else "—" }}</td>
     </tr>
     {% endfor %}
   </tbody>

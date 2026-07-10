@@ -32,7 +32,9 @@ FastAPI + SQLModel app under `src/evalops_dashboard/`, with routers mounted onto
 - `scoring.py` — pure functions for weighted overall-score and pass/fail calculation used by the evaluations router; formula and pass rules are documented in the README's "Evaluation Scoring" section.
 - `comparison.py` — pure aggregation logic for the `/prompts/{id}/comparison` endpoint (ranking, tie-breakers, `comparison_ready`/`winner_response_id` derivation). `routers/comparisons.py` loads the ORM rows, converts them into this module's plain dataclasses, calls `build_comparison_summary`, then maps the result back onto the `PromptComparisonRead` response model. When changing comparison behavior, the ranking/aggregation logic belongs in `comparison.py`, not the router.
 
-This split (pure calculation module + thin router that does ORM I/O and DTO mapping) is the pattern to follow for new score- or ranking-related features — see `scoring.py`/`evaluations.py` and `comparison.py`/`comparisons.py` as the two existing examples.
+This split (pure calculation module + thin router that does ORM I/O and DTO mapping) is the pattern to follow for new score- or ranking-related features — see `scoring.py`/`evaluations.py`, `comparison.py`/`comparisons.py`, and `cost.py`/`routers/pricing.py` (calculation) + `main.py`'s `create_model_response` (the calling site) as three examples.
+
+- `cost.py` — pure `calculate_cost(input_tokens, output_tokens, input_price_per_1k_tokens, output_price_per_1k_tokens)`. `routers/pricing.py` is the CRUD router for the `ModelPricing` catalog (create/list/detail, mirrors `rubrics.py`'s shape). `main.py`'s `create_model_response` looks up a `ModelPricing` row by `(provider, model_name)` and calls `calculate_cost` when both `input_tokens`/`output_tokens` are provided — an unmatched provider/model or missing tokens just leaves `cost_usd` unset, not an error. `cost_usd` deliberately lives only on the `ModelResponse` table model, not on `ModelResponseBase` (which `ModelResponseCreate` inherits from) — this keeps it out of client-submittable input, the same way `Evaluation.overall_score`/`passed` are excluded from `EvaluationCreate`.
 
 - `routers/evaluations.py` also exposes `create_evaluation_from_payload` (the persist-one-evaluation core — validation, scoring, and the transactional persist block — extracted from the `POST /evaluations` route so both that route and the CSV import loop share exactly one code path) and `build_csv_columns` (rubric-criteria-derived CSV header, shared by the CSV export and import routes). New evaluation-persistence logic should extend `create_evaluation_from_payload` rather than duplicating the transaction/validation flow; new CSV column logic should extend `build_csv_columns` rather than hardcoding headers in two places.
 
@@ -44,4 +46,4 @@ Schema changes go through Alembic (`alembic/versions/`), not app startup. `alemb
 
 ## Roadmap
 
-The README's "Future Roadmap" section is the current backlog: model/provider metadata + cost tracking, cross-rubric analytics, auth, and Postgres support.
+The README's "Future Roadmap" section is the current backlog: cross-rubric analytics, auth, and Postgres support.

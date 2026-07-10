@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.6.0`
+Current version: `0.7.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` adds CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` adds a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure.
 
 ## User
 
@@ -44,7 +44,8 @@ The first user is an AI product or operations team that needs a practical way to
 - Server-rendered web dashboard for browsing prompts, responses, rubrics, and evaluations (`/dashboard`)
 - Comparison charts on the dashboard (quality, pass rate, criterion performance, latency) with rubric selection, built as static server-rendered bar charts with no client-side JavaScript
 - CSV export/import for evaluation batches, scoped to one rubric per file, with per-row error reporting on import
-- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, and seeded data
+- Model-pricing catalog (provider + model, price per 1k input/output tokens) with server-calculated cost per model response
+- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, and seeded data
 
 ## Business Value
 
@@ -55,6 +56,7 @@ The first user is an AI product or operations team that needs a practical way to
 - Prompt and model experimentation with quality-versus-latency tradeoffs.
 - Multi-rater aggregation across multiple evaluations for the same response.
 - Identification of evaluation coverage gaps through unscored response reporting.
+- Server-calculated cost from a known pricing catalog, so clients cannot submit their own dollar figures — the same server-controlled-results principle already applied to pass/fail outcomes.
 
 ## Local Setup
 
@@ -139,6 +141,61 @@ An evaluation passes only when:
 
 A non-required criterion may fall below the threshold if the weighted overall score still passes.
 
+## Cost Tracking
+
+This app doesn't call LLMs itself, so it can't know token usage — clients submit `input_tokens`/`output_tokens` as raw facts when creating a model response. The dollar cost is then server-calculated from a `model-pricing` catalog entry matching that response's `(provider, model_name)`, the same way `overall_score`/`passed` are calculated from submitted criterion scores rather than trusted as client input. A client cannot submit `cost_usd` directly — the field isn't accepted on `POST /responses`.
+
+Formula:
+
+```text
+(input_tokens / 1000) * input_price_per_1k_tokens + (output_tokens / 1000) * output_price_per_1k_tokens
+```
+
+The stored `cost_usd` is rounded to six decimal places, calculated once at response-creation time (not recalculated later if pricing changes).
+
+If no `model-pricing` entry matches the response's provider/model, or if token counts weren't provided, `cost_usd` is simply `null` — this is a normal, expected case, not an error.
+
+Create a pricing entry:
+
+```bash
+curl -X POST http://127.0.0.1:8000/model-pricing \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "openai-example",
+    "model_name": "gpt-example-ops",
+    "input_price_per_1k_tokens": 0.01,
+    "output_price_per_1k_tokens": 0.03
+  }'
+```
+
+Create a response with token usage:
+
+```bash
+curl -X POST http://127.0.0.1:8000/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt_id": 1,
+    "model_name": "gpt-example-ops",
+    "response_text": "High urgency...",
+    "provider": "openai-example",
+    "input_tokens": 1200,
+    "output_tokens": 340
+  }'
+```
+
+The response includes the calculated cost:
+
+```json
+{
+  "id": 1,
+  "model_name": "gpt-example-ops",
+  "provider": "openai-example",
+  "input_tokens": 1200,
+  "output_tokens": 340,
+  "cost_usd": 0.0222
+}
+```
+
 ## Model Response Comparison
 
 Decision-makers often evaluate several model responses for the same prompt. Individual evaluations answer whether one response passed, but comparison answers which response performed best, which response passed most consistently, how each response performed by criterion, and which responses still need evaluation.
@@ -169,7 +226,7 @@ A read-only, server-rendered dashboard (Jinja2 templates, no JavaScript framewor
 
 - `/dashboard` — landing page with entity counts
 - `/dashboard/prompts`, `/dashboard/prompts/{id}` — prompt list and detail (with its model responses)
-- `/dashboard/responses`, `/dashboard/responses/{id}` — model response list and detail (with its evaluations)
+- `/dashboard/responses`, `/dashboard/responses/{id}` — model response list and detail (with its evaluations, provider, token counts, and calculated cost)
 - `/dashboard/rubrics`, `/dashboard/rubrics/{id}` — rubric list and detail (with its criteria)
 - `/dashboard/evaluations`, `/dashboard/evaluations/{id}` — evaluation list and detail (with per-criterion scores)
 - `/dashboard/prompts/{id}/comparison` — comparison charts (quality, pass rate, criterion performance, latency) for a prompt's model responses under a selected rubric, visualizing `GET /prompts/{id}/comparison`. If a prompt has evaluations under more than one rubric, a plain HTML form lets you pick which one; with exactly one applicable rubric it's auto-selected. Charts are static server-rendered bars (widths computed server-side, no client-side JavaScript) — consistent with the rest of the dashboard.
@@ -412,6 +469,7 @@ evalops-dashboard/
     versions/
       20260710_0001_initial_schema.py
       20260710_0002_rubric_driven_evaluations.py
+      20260710_0003_model_pricing_and_cost_tracking.py
   alembic.ini
   src/evalops_dashboard/
     routers/
@@ -419,6 +477,7 @@ evalops-dashboard/
       comparisons.py
       dashboard.py
       evaluations.py
+      pricing.py
       rubrics.py
     static/
       dashboard.css
@@ -439,6 +498,7 @@ evalops-dashboard/
       rubrics_list.html
     __init__.py
     comparison.py
+    cost.py
     database.py
     main.py
     models.py
@@ -449,11 +509,14 @@ evalops-dashboard/
     test_app.py
     test_comparison.py
     test_comparisons.py
+    test_cost.py
     test_dashboard.py
     test_dashboard_comparison.py
     test_evaluations.py
     test_evaluations_csv.py
     test_migrations.py
+    test_model_responses.py
+    test_pricing.py
     test_rubrics.py
     test_scoring.py
   AGENTS.md
@@ -463,7 +526,6 @@ evalops-dashboard/
 
 ## Future Roadmap
 
-- Add model/provider metadata and cost tracking.
 - Add generic per-criterion analytics across rubrics and models.
 - Add authentication for internal team usage.
 - Add PostgreSQL support for deployed environments.

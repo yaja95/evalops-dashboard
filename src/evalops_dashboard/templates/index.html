@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}EvalOps Dashboard{% endblock %}
+{% block content %}
+<h1>EvalOps Dashboard</h1>
+<p>Browse prompts, model responses, rubrics, and evaluations.</p>
+<div class="card-grid">
+  <a class="card" href="/dashboard/prompts">
+    <div class="count">{{ counts.prompts }}</div>
+    <div class="label">Prompts</div>
+  </a>
+  <a class="card" href="/dashboard/responses">
+    <div class="count">{{ counts.responses }}</div>
+    <div class="label">Model Responses</div>
+  </a>
+  <a class="card" href="/dashboard/rubrics">
+    <div class="count">{{ counts.rubrics }}</div>
+    <div class="label">Rubrics</div>
+  </a>
+  <a class="card" href="/dashboard/evaluations">
+    <div class="count">{{ counts.evaluations }}</div>
+    <div class="label">Evaluations</div>
+  </a>
+</div>
+{% endblock %}

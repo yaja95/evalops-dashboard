@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ prompt.title }} · EvalOps Dashboard{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/dashboard">Dashboard</a> / <a href="/dashboard/prompts">Prompts</a> / {{ prompt.title }}</div>
+<h1>{{ prompt.title }}</h1>
+<dl class="detail-fields">
+  <dt>Content</dt>
+  <dd>{{ prompt.content }}</dd>
+  <dt>Use case</dt>
+  <dd>{{ prompt.use_case }}</dd>
+  <dt>Owner</dt>
+  <dd>{{ prompt.owner }}</dd>
+  <dt>Created</dt>
+  <dd>{{ prompt.created_at }}</dd>
+</dl>
+
+<section>
+  <h2>Model Responses</h2>
+  {% if responses %}
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>Response</th>
+        <th>Latency (ms)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for response in responses %}
+      <tr>
+        <td><a href="/dashboard/responses/{{ response.id }}">{{ response.model_name }}</a></td>
+        <td>{{ response.response_text[:120] }}{% if response.response_text|length > 120 %}…{% endif %}</td>
+        <td>{{ response.latency_ms if response.latency_ms is not none else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  {% with message = "No model responses yet." %}{% include "partials/empty_state.html" %}{% endwith %}
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,8 +1,10 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
 from evalops_dashboard.database import engine, get_session
@@ -15,9 +17,12 @@ from evalops_dashboard.models import (
     PromptCreate,
 )
 from evalops_dashboard.routers.comparisons import router as comparisons_router
+from evalops_dashboard.routers.dashboard import router as dashboard_router
 from evalops_dashboard.routers.evaluations import router as evaluations_router
 from evalops_dashboard.routers.rubrics import router as rubrics_router
 from evalops_dashboard.seed import seed_database
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -38,6 +43,8 @@ app = FastAPI(
 app.include_router(evaluations_router)
 app.include_router(rubrics_router)
 app.include_router(comparisons_router)
+app.include_router(dashboard_router)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/health")

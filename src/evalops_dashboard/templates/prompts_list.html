@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Prompts · EvalOps Dashboard{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/dashboard">Dashboard</a> / Prompts</div>
+<h1>Prompts</h1>
+{% if prompts %}
+<table>
+  <thead>
+    <tr>
+      <th>Title</th>
+      <th>Use case</th>
+      <th>Owner</th>
+      <th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for prompt in prompts %}
+    <tr>
+      <td><a href="/dashboard/prompts/{{ prompt.id }}">{{ prompt.title }}</a></td>
+      <td>{{ prompt.use_case }}</td>
+      <td>{{ prompt.owner }}</td>
+      <td>{{ prompt.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{% with message = "No prompts yet." %}{% include "partials/empty_state.html" %}{% endwith %}
+{% endif %}
+{% endblock %}

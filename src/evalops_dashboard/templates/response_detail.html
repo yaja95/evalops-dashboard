@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ response.model_name }} · EvalOps Dashboard{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/dashboard">Dashboard</a> / <a href="/dashboard/responses">Responses</a> / {{ response.model_name }}</div>
+<h1>{{ response.model_name }}</h1>
+<dl class="detail-fields">
+  <dt>Prompt</dt>
+  <dd><a href="/dashboard/prompts/{{ response.prompt_id }}">View prompt</a></dd>
+  <dt>Response</dt>
+  <dd>{{ response.response_text }}</dd>
+  <dt>Latency (ms)</dt>
+  <dd>{{ response.latency_ms if response.latency_ms is not none else "—" }}</dd>
+  <dt>Created</dt>
+  <dd>{{ response.created_at }}</dd>
+</dl>
+
+<section>
+  <h2>Evaluations</h2>
+  {% if evaluations %}
+  <table>
+    <thead>
+      <tr>
+        <th>Evaluator</th>
+        <th>Rubric</th>
+        <th>Overall score</th>
+        <th>Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for evaluation in evaluations %}
+      <tr>
+        <td><a href="/dashboard/evaluations/{{ evaluation.id }}">{{ evaluation.evaluator }}</a></td>
+        <td><a href="/dashboard/rubrics/{{ evaluation.rubric_id }}">{{ evaluation.rubric_name }} v{{ evaluation.rubric_version }}</a></td>
+        <td>{{ evaluation.overall_score }}</td>
+        <td>
+          {% if evaluation.passed %}
+          <span class="badge badge-pass">Pass</span>
+          {% else %}
+          <span class="badge badge-fail">Fail</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  {% with message = "No evaluations yet." %}{% include "partials/empty_state.html" %}{% endwith %}
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Evaluations · EvalOps Dashboard{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/dashboard">Dashboard</a> / Evaluations</div>
+<h1>Evaluations</h1>
+{% if evaluations %}
+<table>
+  <thead>
+    <tr>
+      <th>Evaluator</th>
+      <th>Rubric</th>
+      <th>Overall score</th>
+      <th>Result</th>
+      <th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for evaluation in evaluations %}
+    <tr>
+      <td><a href="/dashboard/evaluations/{{ evaluation.id }}">{{ evaluation.evaluator }}</a></td>
+      <td><a href="/dashboard/rubrics/{{ evaluation.rubric_id }}">{{ evaluation.rubric_name }} v{{ evaluation.rubric_version }}</a></td>
+      <td>{{ evaluation.overall_score }}</td>
+      <td>
+        {% if evaluation.passed %}
+        <span class="badge badge-pass">Pass</span>
+        {% else %}
+        <span class="badge badge-fail">Fail</span>
+        {% endif %}
+      </td>
+      <td>{{ evaluation.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{% with message = "No evaluations yet." %}{% include "partials/empty_state.html" %}{% endwith %}
+{% endif %}
+{% endblock %}

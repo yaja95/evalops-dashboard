@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Evaluation #{{ evaluation.id }} · EvalOps Dashboard{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/dashboard">Dashboard</a> / <a href="/dashboard/evaluations">Evaluations</a> / #{{ evaluation.id }}</div>
+<h1>Evaluation #{{ evaluation.id }}
+  {% if evaluation.passed %}
+  <span class="badge badge-pass">Pass</span>
+  {% else %}
+  <span class="badge badge-fail">Fail</span>
+  {% endif %}
+</h1>
+<dl class="detail-fields">
+  <dt>Response</dt>
+  <dd><a href="/dashboard/responses/{{ evaluation.response_id }}">View response</a></dd>
+  <dt>Rubric</dt>
+  <dd><a href="/dashboard/rubrics/{{ evaluation.rubric_id }}">{{ evaluation.rubric_name }} v{{ evaluation.rubric_version }}</a></dd>
+  <dt>Overall score</dt>
+  <dd>{{ evaluation.overall_score }}</dd>
+  <dt>Evaluator</dt>
+  <dd>{{ evaluation.evaluator }}</dd>
+  <dt>Justification</dt>
+  <dd>{{ evaluation.justification }}</dd>
+  <dt>Created</dt>
+  <dd>{{ evaluation.created_at }}</dd>
+</dl>
+
+<section>
+  <h2>Criterion Scores</h2>
+  {% if evaluation.scores %}
+  <table>
+    <thead>
+      <tr>
+        <th>Criterion</th>
+        <th>Score</th>
+        <th>Weight</th>
+        <th>Required</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for score in evaluation.scores %}
+      <tr>
+        <td>{{ score.criterion_name }}</td>
+        <td>{{ score.score }}</td>
+        <td>{{ score.weight }}</td>
+        <td>{{ "Yes" if score.required else "No" }}</td>
+        <td>{{ score.notes if score.notes else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  {% with message = "No criterion scores recorded." %}{% include "partials/empty_state.html" %}{% endwith %}
+  {% endif %}
+</section>
+{% endblock %}

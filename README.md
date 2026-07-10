@@ -31,6 +31,7 @@ The first user is an AI product or operations team that needs a practical way to
 - Prompt records
 - Model response records
 - Rubric-based evaluation records with instruction following, truthfulness, completeness, conciseness, safety, writing style, and overall scores
+- Reusable rubric templates with weighted criteria for future evaluation scoring workflows
 - Analytics summary for counts, average scores, most common failure category, and pass rate
 - Basic create/list API routes
 - Test coverage for health and seeded data
@@ -110,6 +111,39 @@ curl -X POST http://127.0.0.1:8000/evaluations \
   }'
 ```
 
+Create a reusable rubric template:
+
+```bash
+curl -X POST http://127.0.0.1:8000/rubrics \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Support Response Quality",
+    "version": 1,
+    "description": "Evaluates customer-support responses.",
+    "pass_threshold": 4,
+    "criteria": [
+      {
+        "name": "Instruction Following",
+        "description": "The response addresses the requested task.",
+        "weight": 2,
+        "min_score": 1,
+        "max_score": 5,
+        "required": true
+      },
+      {
+        "name": "Clarity",
+        "description": "The response is clear and understandable.",
+        "weight": 1,
+        "min_score": 1,
+        "max_score": 5,
+        "required": true
+      }
+    ]
+  }'
+```
+
+Rubric templates define the criteria and weights that future evaluation workflows will use. Per-criterion evaluation scoring is the next planned feature.
+
 Get an analytics summary:
 
 ```bash
@@ -136,6 +170,9 @@ Example response:
 evalops-dashboard/
   .github/workflows/ci.yml
   src/evalops_dashboard/
+    routers/
+      __init__.py
+      rubrics.py
     __init__.py
     database.py
     main.py
@@ -151,7 +188,7 @@ evalops-dashboard/
 ## Future Roadmap
 
 - Add a simple web dashboard for browsing prompts, responses, and evaluations.
-- Add rubric templates and per-criterion scoring.
+- Add per-criterion scoring that applies rubric templates to model responses.
 - Add CSV import/export for evaluation batches.
 - Add model/provider metadata and cost tracking.
 - Add authentication for internal team usage.

@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+from pydantic import field_validator, model_validator
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -71,3 +73,81 @@ class AnalyticsSummary(SQLModel):
     average_truthfulness_score: float | None
     most_common_failure_category: str | None
     pass_rate: float
+
+
+class RubricBase(SQLModel):
+    name: str = Field(min_length=1, max_length=120)
+    version: int = Field(ge=1)
+    description: str = Field(default="")
+    pass_threshold: int = Field(ge=1, le=5)
+
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_blank(cls, value: str) -> str:
+        stripped_value = value.strip()
+        if not stripped_value:
+            raise ValueError("Name must not be empty.")
+        return stripped_value
+
+
+class Rubric(RubricBase, table=True):
+    __table_args__ = (UniqueConstraint("name", "version"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class RubricCriterionBase(SQLModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="")
+    weight: float = Field(gt=0)
+    min_score: int = Field(ge=1, le=5)
+    max_score: int = Field(ge=1, le=5)
+    required: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_blank(cls, value: str) -> str:
+        stripped_value = value.strip()
+        if not stripped_value:
+            raise ValueError("Name must not be empty.")
+        return stripped_value
+
+    @model_validator(mode="after")
+    def min_score_must_be_less_than_max_score(self) -> RubricCriterionBase:
+        if self.min_score >= self.max_score:
+            raise ValueError("min_score must be less than max_score.")
+        return self
+
+
+class RubricCriterion(RubricCriterionBase, table=True):
+    __table_args__ = (UniqueConstraint("rubric_id", "name"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    rubric_id: int = Field(foreign_key="rubric.id")
+
+
+class RubricCriterionCreate(RubricCriterionBase):
+    pass
+
+
+class RubricCreate(RubricBase):
+    criteria: list[RubricCriterionCreate] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def criterion_names_must_be_unique(self) -> RubricCreate:
+        normalized_names = [criterion.name.casefold() for criterion in self.criteria]
+        if len(normalized_names) != len(set(normalized_names)):
+            raise ValueError("Criterion names must be unique within a rubric.")
+        return self
+
+
+class RubricCriterionRead(RubricCriterionBase):
+    id: int
+    rubric_id: int
+
+
+class RubricRead(RubricBase):
+    id: int
+    created_at: datetime
+    criteria: list[RubricCriterionRead]

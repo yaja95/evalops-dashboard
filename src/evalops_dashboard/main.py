@@ -16,6 +16,7 @@ from evalops_dashboard.models import (
     Prompt,
     PromptCreate,
 )
+from evalops_dashboard.routers.rubrics import router as rubrics_router
 from evalops_dashboard.seed import seed_database
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -35,6 +36,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.include_router(rubrics_router)
 
 
 @app.get("/health")

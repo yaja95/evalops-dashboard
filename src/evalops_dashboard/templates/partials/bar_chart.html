@@ -1,0 +1,14 @@
+{% macro bar_chart(title, rows, unit_note="") %}
+<div class="bar-chart">
+  <h3 class="bar-chart-title">{{ title }}{% if unit_note %} <span class="bar-chart-unit">({{ unit_note }})</span>{% endif %}</h3>
+  {% for row in rows %}
+  <div class="bar-row">
+    <div class="bar-label">{{ row.label }}{% if row.is_winner %} <span class="badge badge-winner">Winner</span>{% endif %}</div>
+    <div class="bar-track">
+      <div class="bar-fill{% if row.is_winner %} bar-fill-winner{% endif %}" style="width: {{ row.percent }}%;"></div>
+    </div>
+    <div class="bar-value">{{ row.display_value }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}

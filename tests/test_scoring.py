@@ -38,3 +38,16 @@ def test_low_non_required_criterion_can_still_pass() -> None:
 
     assert result.overall_score == 4.64
     assert result.passed is True
+
+
+def test_score_that_rounds_up_to_threshold_does_not_pass() -> None:
+    result = calculate_scoring_result(
+        [
+            ScoredCriterion(score=3, weight=1, required=False),
+            ScoredCriterion(score=4, weight=249, required=False),
+        ],
+        pass_threshold=4,
+    )
+
+    assert result.overall_score == 4.0
+    assert result.passed is False

@@ -23,15 +23,15 @@ def calculate_scoring_result(
     if total_weight <= 0:
         raise ValueError("Total criterion weight must be greater than zero.")
 
-    weighted_score = (
+    raw_weighted_score = (
         sum(criterion.score * criterion.weight for criterion in scored_criteria) / total_weight
     )
-    overall_score = round(weighted_score, 2)
+    overall_score = round(raw_weighted_score, 2)
     required_criteria_passed = all(
         criterion.score >= pass_threshold for criterion in scored_criteria if criterion.required
     )
 
     return ScoringResult(
         overall_score=overall_score,
-        passed=overall_score >= pass_threshold and required_criteria_passed,
+        passed=raw_weighted_score >= pass_threshold and required_criteria_passed,
     )

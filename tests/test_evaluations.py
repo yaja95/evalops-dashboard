@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -78,6 +79,26 @@ def test_low_non_required_criterion_can_still_pass() -> None:
     assert response.status_code == 201
     assert response.json()["overall_score"] == 4.64
     assert response.json()["passed"] is True
+
+
+def test_score_that_rounds_up_to_threshold_does_not_pass() -> None:
+    with TestClient(app) as client:
+        response_id = create_response(client)
+        rubric = create_rubric(
+            client,
+            "Rounded Boundary Failure",
+            criteria=[
+                criterion_payload("Minor Criterion", weight=1, required=False),
+                criterion_payload("Major Criterion", weight=249, required=False),
+            ],
+        )
+        payload = evaluation_payload(response_id, rubric, scores=[3, 4])
+
+        response = client.post("/evaluations", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["overall_score"] == 4.0
+    assert response.json()["passed"] is False
 
 
 @pytest.mark.parametrize("field_name", ["overall_score", "passed"])
@@ -232,6 +253,44 @@ def test_invalid_request_leaves_no_partial_records() -> None:
 
     assert response.status_code == 422
     assert ending_count == starting_count
+
+
+def test_database_error_during_criterion_score_insert_rolls_back_evaluation() -> None:
+    trigger_name = "reject_criterionscore_insert"
+    with TestClient(app) as client:
+        response_id = create_response(client)
+        rubric = create_rubric(client, "Forced Rollback")
+        with Session(engine) as session:
+            starting_counts = object_counts(session)
+            session.execute(
+                text(
+                    f"""
+                    CREATE TRIGGER {trigger_name}
+                    BEFORE INSERT ON criterionscore
+                    BEGIN
+                        SELECT RAISE(ABORT, 'forced criterionscore insert failure');
+                    END
+                    """
+                )
+            )
+            session.commit()
+
+        try:
+            response = client.post(
+                "/evaluations",
+                json=evaluation_payload(response_id, rubric),
+            )
+        finally:
+            with Session(engine) as session:
+                session.execute(text(f"DROP TRIGGER IF EXISTS {trigger_name}"))
+                session.commit()
+
+        with Session(engine) as session:
+            ending_counts = object_counts(session)
+
+    assert response.status_code == 422
+    assert ending_counts["evaluations"] == starting_counts["evaluations"]
+    assert ending_counts["criterion_scores"] == starting_counts["criterion_scores"]
 
 
 def test_invalid_required_criterion_rubric_configuration_is_rejected_at_evaluation_time() -> None:

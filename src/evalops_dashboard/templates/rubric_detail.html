@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ rubric.name }} · EvalOps Dashboard{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/dashboard">Dashboard</a> / <a href="/dashboard/rubrics">Rubrics</a> / {{ rubric.name }}</div>
+<h1>{{ rubric.name }} <small>v{{ rubric.version }}</small></h1>
+<dl class="detail-fields">
+  <dt>Description</dt>
+  <dd>{{ rubric.description if rubric.description else "—" }}</dd>
+  <dt>Pass threshold</dt>
+  <dd>{{ rubric.pass_threshold }}</dd>
+  <dt>Created</dt>
+  <dd>{{ rubric.created_at }}</dd>
+</dl>
+
+<section>
+  <h2>Criteria</h2>
+  {% if rubric.criteria %}
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Description</th>
+        <th>Weight</th>
+        <th>Score range</th>
+        <th>Required</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for criterion in rubric.criteria %}
+      <tr>
+        <td>{{ criterion.name }}</td>
+        <td>{{ criterion.description if criterion.description else "—" }}</td>
+        <td>{{ criterion.weight }}</td>
+        <td>{{ criterion.min_score }}–{{ criterion.max_score }}</td>
+        <td>{{ "Yes" if criterion.required else "No" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  {% with message = "This rubric has no criteria yet." %}{% include "partials/empty_state.html" %}{% endwith %}
+  {% endif %}
+</section>
+{% endblock %}

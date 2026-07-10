@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}EvalOps Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="/static/dashboard.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/dashboard">EvalOps Dashboard</a>
+    <nav>
+      <a href="/dashboard/prompts">Prompts</a>
+      <a href="/dashboard/responses">Responses</a>
+      <a href="/dashboard/rubrics">Rubrics</a>
+      <a href="/dashboard/evaluations">Evaluations</a>
+    </nav>
+  </header>
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Model Responses · EvalOps Dashboard{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/dashboard">Dashboard</a> / Responses</div>
+<h1>Model Responses</h1>
+{% if responses %}
+<table>
+  <thead>
+    <tr>
+      <th>Model</th>
+      <th>Prompt</th>
+      <th>Latency (ms)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for response in responses %}
+    <tr>
+      <td><a href="/dashboard/responses/{{ response.id }}">{{ response.model_name }}</a></td>
+      <td>
+        {% set prompt = prompts_by_id.get(response.prompt_id) %}
+        {% if prompt %}
+        <a href="/dashboard/prompts/{{ prompt.id }}">{{ prompt.title }}</a>
+        {% else %}
+        —
+        {% endif %}
+      </td>
+      <td>{{ response.latency_ms if response.latency_ms is not none else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{% with message = "No model responses yet." %}{% include "partials/empty_state.html" %}{% endwith %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Rubrics · EvalOps Dashboard{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/dashboard">Dashboard</a> / Rubrics</div>
+<h1>Rubrics</h1>
+{% if rubrics %}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Version</th>
+      <th>Pass threshold</th>
+      <th>Criteria</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for rubric in rubrics %}
+    <tr>
+      <td><a href="/dashboard/rubrics/{{ rubric.id }}">{{ rubric.name }}</a></td>
+      <td>{{ rubric.version }}</td>
+      <td>{{ rubric.pass_threshold }}</td>
+      <td>{{ rubric.criteria|length }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{% with message = "No rubrics yet." %}{% include "partials/empty_state.html" %}{% endwith %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,102 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, HTTPException, status
+from sqlmodel import Session, select
+
+from evalops_dashboard.database import create_db_and_tables, engine, get_session
+from evalops_dashboard.models import (
+    Evaluation,
+    EvaluationCreate,
+    ModelResponse,
+    ModelResponseCreate,
+    Prompt,
+    PromptCreate,
+)
+from evalops_dashboard.seed import seed_database
+
+SessionDep = Annotated[Session, Depends(get_session)]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    create_db_and_tables()
+    with Session(engine) as session:
+        seed_database(session)
+    yield
+
+
+app = FastAPI(
+    title="evalops-dashboard",
+    summary="A lightweight AI evaluation operations API.",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": "evalops-dashboard"}
+
+
+@app.get("/prompts", response_model=list[Prompt])
+def list_prompts(session: SessionDep) -> list[Prompt]:
+    return list(session.exec(select(Prompt)).all())
+
+
+@app.post("/prompts", response_model=Prompt, status_code=status.HTTP_201_CREATED)
+def create_prompt(prompt_create: PromptCreate, session: SessionDep) -> Prompt:
+    prompt = Prompt.model_validate(prompt_create)
+    session.add(prompt)
+    session.commit()
+    session.refresh(prompt)
+    return prompt
+
+
+@app.get("/responses", response_model=list[ModelResponse])
+def list_model_responses(session: SessionDep) -> list[ModelResponse]:
+    return list(session.exec(select(ModelResponse)).all())
+
+
+@app.post("/responses", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
+def create_model_response(
+    response_create: ModelResponseCreate,
+    session: SessionDep,
+) -> ModelResponse:
+    prompt = session.get(Prompt, response_create.prompt_id)
+    if prompt is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Prompt {response_create.prompt_id} was not found.",
+        )
+
+    model_response = ModelResponse.model_validate(response_create)
+    session.add(model_response)
+    session.commit()
+    session.refresh(model_response)
+    return model_response
+
+
+@app.get("/evaluations", response_model=list[Evaluation])
+def list_evaluations(session: SessionDep) -> list[Evaluation]:
+    return list(session.exec(select(Evaluation)).all())
+
+
+@app.post("/evaluations", response_model=Evaluation, status_code=status.HTTP_201_CREATED)
+def create_evaluation(
+    evaluation_create: EvaluationCreate,
+    session: SessionDep,
+) -> Evaluation:
+    model_response = session.get(ModelResponse, evaluation_create.response_id)
+    if model_response is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Model response {evaluation_create.response_id} was not found.",
+        )
+
+    evaluation = Evaluation.model_validate(evaluation_create)
+    session.add(evaluation)
+    session.commit()
+    session.refresh(evaluation)
+    return evaluation

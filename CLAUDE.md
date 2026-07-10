@@ -34,6 +34,8 @@ FastAPI + SQLModel app under `src/evalops_dashboard/`, with routers mounted onto
 
 This split (pure calculation module + thin router that does ORM I/O and DTO mapping) is the pattern to follow for new score- or ranking-related features — see `scoring.py`/`evaluations.py` and `comparison.py`/`comparisons.py` as the two existing examples.
 
+- `routers/evaluations.py` also exposes `create_evaluation_from_payload` (the persist-one-evaluation core — validation, scoring, and the transactional persist block — extracted from the `POST /evaluations` route so both that route and the CSV import loop share exactly one code path) and `build_csv_columns` (rubric-criteria-derived CSV header, shared by the CSV export and import routes). New evaluation-persistence logic should extend `create_evaluation_from_payload` rather than duplicating the transaction/validation flow; new CSV column logic should extend `build_csv_columns` rather than hardcoding headers in two places.
+
 - `routers/dashboard.py` — server-rendered HTML routes under `/dashboard` (Jinja2 templates in `templates/`, static assets in `static/`, mounted via `StaticFiles` at `/static` in `main.py`). This one has no pure-calculation counterpart: it's read-only presentation over existing data, and reuses `build_rubric_response` (from `rubrics.py`), `build_evaluation_responses` (from `evaluations.py`), and `compare_prompt_responses` (from `comparisons.py`, called directly rather than re-deriving its aggregation) rather than introducing new business logic. Prompt/response queries have no existing builder either, so those are inlined directly in the route functions. `build_applicable_rubrics` and `build_chart_rows` (with the `BarChartRow`/`CriterionChart`/`ChartData` dataclasses) also live here — the latter is presentation reshaping (rounding, percentage-of-max math for bar widths) on top of `compare_prompt_responses`'s output, not aggregation, which is why it stays out of `comparison.py`. Charts themselves are static server-rendered bars (a `bar_chart` Jinja macro in `templates/partials/bar_chart.html`) with no client-side JavaScript, consistent with the rest of the dashboard.
 
 ### Migrations
@@ -42,4 +44,4 @@ Schema changes go through Alembic (`alembic/versions/`), not app startup. `alemb
 
 ## Roadmap
 
-The README's "Future Roadmap" section is the current backlog: CSV import/export, model/provider metadata + cost tracking, cross-rubric analytics, auth, and Postgres support.
+The README's "Future Roadmap" section is the current backlog: model/provider metadata + cost tracking, cross-rubric analytics, auth, and Postgres support.

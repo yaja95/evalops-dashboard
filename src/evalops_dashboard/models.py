@@ -132,6 +132,16 @@ class EvaluationRead(SQLModel):
     scores: list[CriterionScoreRead]
 
 
+class ImportRowError(SQLModel):
+    row: int
+    detail: str
+
+
+class ImportSummary(SQLModel):
+    created_count: int
+    errors: list[ImportRowError]
+
+
 class AnalyticsSummary(SQLModel):
     prompt_count: int
     response_count: int

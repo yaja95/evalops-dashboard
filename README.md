@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.5.0`
+Current version: `0.6.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` adds comparison charts to the dashboard so that comparison is visual, not just tabular.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` adds CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time.
 
 ## User
 
@@ -43,6 +43,7 @@ The first user is an AI product or operations team that needs a practical way to
 - Basic create/list API routes
 - Server-rendered web dashboard for browsing prompts, responses, rubrics, and evaluations (`/dashboard`)
 - Comparison charts on the dashboard (quality, pass rate, criterion performance, latency) with rubric selection, built as static server-rendered bar charts with no client-side JavaScript
+- CSV export/import for evaluation batches, scoped to one rubric per file, with per-row error reporting on import
 - Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, and seeded data
 
 ## Business Value
@@ -173,7 +174,49 @@ A read-only, server-rendered dashboard (Jinja2 templates, no JavaScript framewor
 - `/dashboard/evaluations`, `/dashboard/evaluations/{id}` — evaluation list and detail (with per-criterion scores)
 - `/dashboard/prompts/{id}/comparison` — comparison charts (quality, pass rate, criterion performance, latency) for a prompt's model responses under a selected rubric, visualizing `GET /prompts/{id}/comparison`. If a prompt has evaluations under more than one rubric, a plain HTML form lets you pick which one; with exactly one applicable rubric it's auto-selected. Charts are static server-rendered bars (widths computed server-side, no client-side JavaScript) — consistent with the rest of the dashboard.
 
+The rubric detail page includes an Export CSV link (`GET /evaluations/export?rubric_id={id}`) for downloading that rubric's evaluations.
+
 This is still browsing-only: there are no create/edit forms. Use the JSON API above for writes.
+
+## CSV Import/Export
+
+Each CSV is scoped to **one rubric**, so column names are fixed for that rubric's criteria: `response_id, evaluator, justification`, then `<criterion name>_score, <criterion name>_notes` per criterion in rubric order. For example, exporting rubric 1 ("Support Response Quality", criteria Instruction Following / Operational Accuracy / Clarity) produces:
+
+```text
+response_id,evaluator,justification,Instruction Following_score,Instruction Following_notes,Operational Accuracy_score,Operational Accuracy_notes,Clarity_score,Clarity_notes
+```
+
+This makes export/import round-trippable: export a rubric's evaluations, edit scores in a spreadsheet, re-import.
+
+Export:
+
+```bash
+curl -o evaluations.csv "http://127.0.0.1:8000/evaluations/export?rubric_id=1"
+```
+
+A rubric with zero evaluations exports a header-only CSV, not an error.
+
+Import:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/evaluations/import?rubric_id=1" \
+  -F "file=@evaluations.csv"
+```
+
+Import is **partial-success**: each row is validated and persisted independently, so one bad row doesn't block the rest of the batch. The response reports what happened:
+
+```json
+{
+  "created_count": 2,
+  "errors": [
+    {"row": 3, "detail": "Score for 'Clarity' must be no greater than 5."}
+  ]
+}
+```
+
+`row` is 1-indexed from the first data row (the row directly after the header). Row-level validation errors reuse the exact same messages as `POST /evaluations` — a score out of a criterion's bounds produces the identical wording either way. A structural problem (missing or unexpected columns, meaning the CSV doesn't match the rubric's *current* criteria — for example if criteria changed since the file was exported) fails the whole import with a single 422, since no row can be meaningfully parsed in that case.
+
+**Re-importing a previously exported CSV creates new evaluation records — it does not deduplicate.** This matches calling `POST /evaluations` directly, which nothing prevents you from doing twice with the same payload today.
 
 ## Example API Calls
 
@@ -409,6 +452,7 @@ evalops-dashboard/
     test_dashboard.py
     test_dashboard_comparison.py
     test_evaluations.py
+    test_evaluations_csv.py
     test_migrations.py
     test_rubrics.py
     test_scoring.py
@@ -419,7 +463,6 @@ evalops-dashboard/
 
 ## Future Roadmap
 
-- Add CSV import/export for evaluation batches.
 - Add model/provider metadata and cost tracking.
 - Add generic per-criterion analytics across rubrics and models.
 - Add authentication for internal team usage.

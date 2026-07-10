@@ -3,6 +3,7 @@
 {% block content %}
 <div class="breadcrumb"><a href="/dashboard">Dashboard</a> / <a href="/dashboard/rubrics">Rubrics</a> / {{ rubric.name }}</div>
 <h1>{{ rubric.name }} <small>v{{ rubric.version }}</small></h1>
+<p><a href="/evaluations/export?rubric_id={{ rubric.id }}">Export CSV</a></p>
 <dl class="detail-fields">
   <dt>Description</dt>
   <dd>{{ rubric.description if rubric.description else "—" }}</dd>

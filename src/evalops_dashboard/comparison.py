@@ -58,6 +58,8 @@ class ResponseComparison:
     evaluation_count: int
     average_overall_score: float
     pass_rate: float
+    raw_average_overall_score: float
+    raw_pass_rate: float
     latest_evaluated_at: datetime
     criterion_averages: list[CriterionAverage]
 
@@ -122,9 +124,9 @@ def build_comparison_summary(
     ]
     ranked_results = assign_ranks(response_comparisons)
     compared_response_ids = {result.response_id for result in ranked_results}
-    unscored_response_ids = [
+    unscored_response_ids = sorted(
         response.id for response in responses if response.id not in compared_response_ids
-    ]
+    )
     comparison_ready = len(ranked_results) >= 2
 
     return ComparisonSummary(
@@ -167,6 +169,13 @@ def build_response_comparison(
             )
         )
 
+    raw_average_overall_score = (
+        sum(evaluation.overall_score for evaluation in evaluations) / evaluation_count
+    )
+    raw_pass_rate = (
+        len([evaluation for evaluation in evaluations if evaluation.passed]) / evaluation_count
+    )
+
     return ResponseComparison(
         rank=0,
         response_id=response.id,
@@ -174,14 +183,10 @@ def build_response_comparison(
         response_text=response.response_text,
         latency_ms=response.latency_ms,
         evaluation_count=evaluation_count,
-        average_overall_score=round(
-            sum(evaluation.overall_score for evaluation in evaluations) / evaluation_count,
-            2,
-        ),
-        pass_rate=round(
-            len([evaluation for evaluation in evaluations if evaluation.passed]) / evaluation_count,
-            2,
-        ),
+        average_overall_score=round(raw_average_overall_score, 2),
+        pass_rate=round(raw_pass_rate, 2),
+        raw_average_overall_score=raw_average_overall_score,
+        raw_pass_rate=raw_pass_rate,
         latest_evaluated_at=max(evaluation.created_at for evaluation in evaluations),
         criterion_averages=criterion_averages,
     )
@@ -191,8 +196,8 @@ def assign_ranks(results: Sequence[ResponseComparison]) -> list[ResponseComparis
     sorted_results = sorted(
         results,
         key=lambda result: (
-            -result.average_overall_score,
-            -result.pass_rate,
+            -result.raw_average_overall_score,
+            -result.raw_pass_rate,
             result.latency_ms is None,
             result.latency_ms if result.latency_ms is not None else 0,
             result.response_id,
@@ -208,6 +213,8 @@ def assign_ranks(results: Sequence[ResponseComparison]) -> list[ResponseComparis
             evaluation_count=result.evaluation_count,
             average_overall_score=result.average_overall_score,
             pass_rate=result.pass_rate,
+            raw_average_overall_score=result.raw_average_overall_score,
+            raw_pass_rate=result.raw_pass_rate,
             latest_evaluated_at=result.latest_evaluated_at,
             criterion_averages=result.criterion_averages,
         )

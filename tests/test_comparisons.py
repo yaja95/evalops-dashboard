@@ -120,6 +120,31 @@ def test_higher_average_score_ranks_first() -> None:
     ]
 
 
+def test_raw_average_score_ranks_before_displayed_average_tie_breakers() -> None:
+    with TestClient(app) as client:
+        prompt = create_prompt(client, "Raw Average Boundary Prompt")
+        rubric = create_rubric(
+            client,
+            "Raw Average Boundary Rubric",
+            criteria=[
+                criterion_payload("Dominant", weight=99, required=True),
+                criterion_payload("Small", weight=1, required=False),
+            ],
+        )
+        response_a = create_model_response(client, prompt["id"], "raw-lower-fast", latency_ms=10)
+        response_b = create_model_response(client, prompt["id"], "raw-higher-slow", latency_ms=999)
+        create_evaluation(client, response_a["id"], rubric, scores=[4, 4], evaluator="a-one")
+        create_evaluation(client, response_a["id"], rubric, scores=[4, 5], evaluator="a-two")
+        create_evaluation(client, response_a["id"], rubric, scores=[4, 5], evaluator="a-three")
+        create_evaluation(client, response_b["id"], rubric, scores=[4, 5], evaluator="b-one")
+
+        response = client.get(f"/prompts/{prompt['id']}/comparison?rubric_id={rubric['id']}")
+
+    results = response.json()["results"]
+    assert [result["average_overall_score"] for result in results] == [4.01, 4.01]
+    assert [result["response_id"] for result in results] == [response_b["id"], response_a["id"]]
+
+
 def test_pass_rate_breaks_average_score_tie() -> None:
     with TestClient(app) as client:
         prompt = create_prompt(client, "Pass Rate Ranking Prompt")
@@ -143,6 +168,33 @@ def test_pass_rate_breaks_average_score_tie() -> None:
         lower_pass_rate["id"],
     ]
     assert [result["pass_rate"] for result in response.json()["results"]] == [1.0, 0.0]
+
+
+def test_exact_rubric_version_isolation() -> None:
+    with TestClient(app) as client:
+        prompt = create_prompt(client, "Exact Rubric Version Prompt")
+        rubric_v1 = create_rubric(client, "Versioned Comparison Rubric", version=1)
+        rubric_v2 = create_rubric(client, "Versioned Comparison Rubric", version=2)
+        response_a = create_model_response(client, prompt["id"], "version-one-lower")
+        response_b = create_model_response(client, prompt["id"], "version-one-winner")
+        create_evaluation(client, response_a["id"], rubric_v1, scores=[4, 4], evaluator="v1-a")
+        create_evaluation(client, response_b["id"], rubric_v1, scores=[5, 5], evaluator="v1-b")
+        create_evaluation(client, response_a["id"], rubric_v2, scores=[5, 5], evaluator="v2-a")
+        create_evaluation(client, response_b["id"], rubric_v2, scores=[1, 1], evaluator="v2-b")
+
+        response = client.get(f"/prompts/{prompt['id']}/comparison?rubric_id={rubric_v1['id']}")
+
+    body = response.json()
+    assert body["rubric"]["version"] == 1
+    assert body["comparison_ready"] is True
+    assert body["compared_response_count"] == 2
+    assert body["winner_response_id"] == response_b["id"]
+    assert [
+        (result["response_id"], result["average_overall_score"]) for result in body["results"]
+    ] == [
+        (response_b["id"], 5.0),
+        (response_a["id"], 4.0),
+    ]
 
 
 def test_latency_and_response_id_tie_breakers_are_deterministic() -> None:
@@ -334,13 +386,14 @@ def create_model_response(
 def create_rubric(
     client: TestClient,
     name: str,
+    version: int = 1,
     criteria: list[dict] | None = None,
 ) -> dict:
     response = client.post(
         "/rubrics",
         json={
             "name": name,
-            "version": 1,
+            "version": version,
             "description": "Comparison test rubric.",
             "pass_threshold": 4,
             "criteria": criteria

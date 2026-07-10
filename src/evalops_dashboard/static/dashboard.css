@@ -228,7 +228,7 @@ section + section {
 
 .bar-row {
   display: grid;
-  grid-template-columns: 160px 1fr 70px;
+  grid-template-columns: 190px 1fr 70px;
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.6rem;
@@ -240,9 +240,17 @@ section + section {
 }
 
 .bar-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.bar-label-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .bar-track {

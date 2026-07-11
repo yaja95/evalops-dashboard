@@ -15,18 +15,19 @@ uv run ruff check .                                               # lint
 uv run pytest                                                     # run all tests
 uv run pytest tests/test_comparison.py                            # run a single test file
 uv run pytest tests/test_comparison.py::test_name -v               # run a single test
+EVALOPS_DATABASE_URL="postgresql+psycopg://..." uv run pytest postgres_smoke_test/ -v # Postgres smoke test (needs a live Postgres; not part of the default suite)
 ```
 
-CI (`.github/workflows/ci.yml`) runs `ruff format --check`, `ruff check`, `alembic upgrade head`, then `pytest` — run all four before finishing a change.
+CI (`.github/workflows/ci.yml`) has two jobs: `test` runs `ruff format --check`, `ruff check`, `alembic upgrade head`, then `pytest` against SQLite — run all four before finishing a change. `postgres-smoke` runs migrations and `postgres_smoke_test/` against a real `postgres:16` service container to verify PostgreSQL compatibility.
 
-Database URL is configurable via `EVALOPS_DATABASE_URL` (defaults to `sqlite:///./evalops.db`); CI uses a separate `ci_evalops.db`.
+Database URL is configurable via `EVALOPS_DATABASE_URL` (defaults to `sqlite:///./evalops.db`); CI's `test` job uses a separate `ci_evalops.db`. The app also runs unchanged against PostgreSQL (`postgresql+psycopg://...`) — see the README's PostgreSQL Support section.
 
 ## Architecture
 
 FastAPI + SQLModel app under `src/evalops_dashboard/`, with routers mounted onto `main.py`:
 
 - `models.py` — all SQLModel table models plus their `*Create`/`*Read` DTOs live in one file. Table models (`Prompt`, `ModelResponse`, `Rubric`, `RubricCriterion`, `Evaluation`, `CriterionScore`) and their API-facing schemas are colocated here; there's no separate schemas package.
-- `database.py` — single SQLAlchemy `engine`, built from `EVALOPS_DATABASE_URL`. Uses `StaticPool` only for the in-memory `sqlite://` test case, and enables SQLite foreign keys via a `connect` event listener.
+- `database.py` — single SQLAlchemy `engine`, built from `EVALOPS_DATABASE_URL`. Uses `StaticPool` only for the in-memory `sqlite://` test case, and enables SQLite foreign keys via a `connect` event listener; both are gated behind a `sqlite` URL check, so the same engine setup runs unchanged against PostgreSQL (verified by the `postgres-smoke` CI job).
 - `main.py` — app instance, lifespan hook that seeds demo data on startup via `seed.py` (the app never creates/alters tables at runtime — schema changes only happen through Alembic), and the `/health`, `/analytics/summary`, `/prompts`, `/responses` routes directly. Also registers the `DashboardAuthRequired` exception handler (redirects unauthenticated dashboard visits to `/login`).
 - `routers/` — `evaluations.py`, `rubrics.py`, `comparisons.py` hold the remaining route groups, each taking a `SessionDep` (`Annotated[Session, Depends(get_session)]`). Every router now also takes `CurrentUser` (`Annotated[User, Depends(get_current_user)]`, JSON routes) or `CurrentDashboardUser` (dashboard routes) — both defined in `auth.py` — except `GET /health`, `GET /login`, `POST /login`, and `POST /auth/login`, which stay public by design.
 - `scoring.py` — pure functions for weighted overall-score and pass/fail calculation used by the evaluations router; formula and pass rules are documented in the README's "Evaluation Scoring" section.
@@ -48,4 +49,4 @@ Schema changes go through Alembic (`alembic/versions/`), not app startup. `alemb
 
 ## Roadmap
 
-The README's "Future Roadmap" section is the current backlog: cross-rubric analytics, Postgres support, role-based access control, and login rate limiting.
+The README's "Future Roadmap" section is the current backlog: cross-rubric analytics, role-based access control, and login rate limiting.

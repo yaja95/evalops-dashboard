@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
+from evalops_dashboard.auth import CurrentUser
 from evalops_dashboard.comparison import (
     ComparisonCriterion,
     ComparisonCriterionScore,
@@ -34,6 +35,7 @@ def compare_prompt_responses(
     prompt_id: int,
     rubric_id: int,
     session: SessionDep,
+    current_user: CurrentUser,
 ) -> PromptComparisonRead:
     prompt = session.get(Prompt, prompt_id)
     if prompt is None:

@@ -35,6 +35,11 @@ body {
   color: #1b1f24;
 }
 
+.site-header nav {
+  display: flex;
+  align-items: center;
+}
+
 .site-header nav a {
   margin-left: 1.25rem;
   text-decoration: none;
@@ -44,6 +49,31 @@ body {
 
 .site-header nav a:hover {
   color: var(--accent);
+}
+
+.current-user {
+  margin-left: 1.25rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.logout-form {
+  margin: 0 0 0 0.75rem;
+}
+
+.logout-form button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.logout-form button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .content {
@@ -274,4 +304,59 @@ section + section {
   text-align: right;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f7f8fa;
+}
+
+.login-card {
+  width: 320px;
+  padding: 2rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.login-card h1 {
+  font-size: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.login-error {
+  margin-top: 0;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.login-form label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 0.5rem;
+}
+
+.login-form input {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.login-form button {
+  margin-top: 1rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
 }

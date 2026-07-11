@@ -1,5 +1,8 @@
+import os
+
 from sqlmodel import Session, select
 
+from evalops_dashboard.auth import hash_password
 from evalops_dashboard.cost import calculate_cost
 from evalops_dashboard.models import (
     CriterionScore,
@@ -9,6 +12,7 @@ from evalops_dashboard.models import (
     Prompt,
     Rubric,
     RubricCriterion,
+    User,
 )
 from evalops_dashboard.scoring import ScoredCriterion, calculate_scoring_result
 
@@ -16,9 +20,12 @@ SEED_PROMPT_TITLE = "Classify support ticket urgency"
 SEED_RUBRIC_NAME = "Support Response Quality"
 SEED_RUBRIC_VERSION = 1
 SEED_PROVIDER = "openai-example"
+SEED_USERNAME = "demo"
+SEED_USER_PASSWORD_FALLBACK = "change-me-local-dev-only"  # documented dev-only default
 
 
 def seed_database(session: Session) -> None:
+    ensure_seed_user(session)
     pricing = ensure_seed_pricing(session)
     prompt = ensure_seed_prompt(session)
     responses = ensure_seed_responses(session, prompt, pricing)
@@ -95,6 +102,19 @@ def ensure_seed_pricing(session: Session) -> dict[str, ModelPricing]:
             select(ModelPricing).where(ModelPricing.provider == SEED_PROVIDER)
         ).all()
     }
+
+
+def ensure_seed_user(session: Session) -> User:
+    user = session.exec(select(User).where(User.username == SEED_USERNAME)).first()
+    if user is not None:
+        return user
+
+    password = os.getenv("SEED_USER_PASSWORD", SEED_USER_PASSWORD_FALLBACK)
+    user = User(username=SEED_USERNAME, password_hash=hash_password(password))
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
 
 
 def ensure_seed_prompt(session: Session) -> Prompt:

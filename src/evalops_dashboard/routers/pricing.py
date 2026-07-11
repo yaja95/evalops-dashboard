@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from evalops_dashboard.auth import CurrentUser
 from evalops_dashboard.database import get_session
 from evalops_dashboard.models import ModelPricing, ModelPricingCreate, ModelPricingRead
 
@@ -15,6 +16,7 @@ SessionDep = Annotated[Session, Depends(get_session)]
 def create_model_pricing(
     pricing_create: ModelPricingCreate,
     session: SessionDep,
+    current_user: CurrentUser,
 ) -> ModelPricingRead:
     existing_pricing = session.exec(
         select(ModelPricing).where(
@@ -47,7 +49,7 @@ def create_model_pricing(
 
 
 @router.get("", response_model=list[ModelPricingRead])
-def list_model_pricing(session: SessionDep) -> list[ModelPricing]:
+def list_model_pricing(session: SessionDep, current_user: CurrentUser) -> list[ModelPricing]:
     return list(
         session.exec(
             select(ModelPricing).order_by(ModelPricing.provider, ModelPricing.model_name)
@@ -56,7 +58,11 @@ def list_model_pricing(session: SessionDep) -> list[ModelPricing]:
 
 
 @router.get("/{pricing_id}", response_model=ModelPricingRead)
-def get_model_pricing(pricing_id: int, session: SessionDep) -> ModelPricing:
+def get_model_pricing(
+    pricing_id: int,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> ModelPricing:
     pricing = session.get(ModelPricing, pricing_id)
     if pricing is None:
         raise HTTPException(

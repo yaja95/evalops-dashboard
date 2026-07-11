@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from evalops_dashboard.auth import CurrentUser
 from evalops_dashboard.database import get_session
 from evalops_dashboard.models import (
     Rubric,
@@ -18,7 +19,11 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 
 @router.post("", response_model=RubricRead, status_code=status.HTTP_201_CREATED)
-def create_rubric(rubric_create: RubricCreate, session: SessionDep) -> RubricRead:
+def create_rubric(
+    rubric_create: RubricCreate,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> RubricRead:
     existing_rubric = session.exec(
         select(Rubric).where(
             Rubric.name == rubric_create.name,
@@ -57,13 +62,13 @@ def create_rubric(rubric_create: RubricCreate, session: SessionDep) -> RubricRea
 
 
 @router.get("", response_model=list[RubricRead])
-def list_rubrics(session: SessionDep) -> list[RubricRead]:
+def list_rubrics(session: SessionDep, current_user: CurrentUser) -> list[RubricRead]:
     rubrics = session.exec(select(Rubric).order_by(Rubric.name, Rubric.version, Rubric.id)).all()
     return [build_rubric_response(rubric, session) for rubric in rubrics]
 
 
 @router.get("/{rubric_id}", response_model=RubricRead)
-def get_rubric(rubric_id: int, session: SessionDep) -> RubricRead:
+def get_rubric(rubric_id: int, session: SessionDep, current_user: CurrentUser) -> RubricRead:
     rubric = session.get(Rubric, rubric_id)
     if rubric is None:
         raise HTTPException(

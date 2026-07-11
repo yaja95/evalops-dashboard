@@ -3,10 +3,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
+from evalops_dashboard.auth import CurrentUser, DashboardAuthRequired
 from evalops_dashboard.cost import calculate_cost
 from evalops_dashboard.database import engine, get_session
 from evalops_dashboard.models import (
@@ -18,6 +20,8 @@ from evalops_dashboard.models import (
     Prompt,
     PromptCreate,
 )
+from evalops_dashboard.routers.auth import dashboard_auth_router, users_router
+from evalops_dashboard.routers.auth import router as auth_router
 from evalops_dashboard.routers.comparisons import router as comparisons_router
 from evalops_dashboard.routers.dashboard import router as dashboard_router
 from evalops_dashboard.routers.evaluations import router as evaluations_router
@@ -40,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="evalops-dashboard",
     summary="A lightweight AI evaluation operations API.",
-    version="0.7.0",
+    version="0.8.0",
     lifespan=lifespan,
 )
 app.include_router(evaluations_router)
@@ -48,7 +52,18 @@ app.include_router(rubrics_router)
 app.include_router(comparisons_router)
 app.include_router(dashboard_router)
 app.include_router(pricing_router)
+app.include_router(auth_router)
+app.include_router(users_router)
+app.include_router(dashboard_auth_router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.exception_handler(DashboardAuthRequired)
+def redirect_to_login(request: Request, exc: DashboardAuthRequired) -> RedirectResponse:
+    return RedirectResponse(
+        url=f"/login?next={exc.next_path}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @app.get("/health")
@@ -57,7 +72,7 @@ def health() -> dict[str, str]:
 
 
 @app.get("/analytics/summary", response_model=AnalyticsSummary)
-def get_analytics_summary(session: SessionDep) -> AnalyticsSummary:
+def get_analytics_summary(session: SessionDep, current_user: CurrentUser) -> AnalyticsSummary:
     prompts = list(session.exec(select(Prompt)).all())
     responses = list(session.exec(select(ModelResponse)).all())
     evaluations = list(session.exec(select(Evaluation)).all())
@@ -89,12 +104,16 @@ def calculate_pass_rate(evaluations: list[Evaluation]) -> float:
 
 
 @app.get("/prompts", response_model=list[Prompt])
-def list_prompts(session: SessionDep) -> list[Prompt]:
+def list_prompts(session: SessionDep, current_user: CurrentUser) -> list[Prompt]:
     return list(session.exec(select(Prompt)).all())
 
 
 @app.post("/prompts", response_model=Prompt, status_code=status.HTTP_201_CREATED)
-def create_prompt(prompt_create: PromptCreate, session: SessionDep) -> Prompt:
+def create_prompt(
+    prompt_create: PromptCreate,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Prompt:
     prompt = Prompt.model_validate(prompt_create)
     session.add(prompt)
     session.commit()
@@ -103,7 +122,7 @@ def create_prompt(prompt_create: PromptCreate, session: SessionDep) -> Prompt:
 
 
 @app.get("/responses", response_model=list[ModelResponse])
-def list_model_responses(session: SessionDep) -> list[ModelResponse]:
+def list_model_responses(session: SessionDep, current_user: CurrentUser) -> list[ModelResponse]:
     return list(session.exec(select(ModelResponse)).all())
 
 
@@ -111,6 +130,7 @@ def list_model_responses(session: SessionDep) -> list[ModelResponse]:
 def create_model_response(
     response_create: ModelResponseCreate,
     session: SessionDep,
+    current_user: CurrentUser,
 ) -> ModelResponse:
     prompt = session.get(Prompt, response_create.prompt_id)
     if prompt is None:

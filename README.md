@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.7.0`
+Current version: `0.8.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` adds a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration.
 
 ## User
 
@@ -45,7 +45,8 @@ The first user is an AI product or operations team that needs a practical way to
 - Comparison charts on the dashboard (quality, pass rate, criterion performance, latency) with rubric selection, built as static server-rendered bar charts with no client-side JavaScript
 - CSV export/import for evaluation batches, scoped to one rubric per file, with per-row error reporting on import
 - Model-pricing catalog (provider + model, price per 1k input/output tokens) with server-calculated cost per model response
-- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, and seeded data
+- Session-based authentication for internal team usage, required on all routes except `/health`, the login page, and static assets
+- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, and seeded data
 
 ## Business Value
 
@@ -57,6 +58,7 @@ The first user is an AI product or operations team that needs a practical way to
 - Multi-rater aggregation across multiple evaluations for the same response.
 - Identification of evaluation coverage gaps through unscored response reporting.
 - Server-calculated cost from a known pricing catalog, so clients cannot submit their own dollar figures — the same server-controlled-results principle already applied to pass/fail outcomes.
+- Session-based login for internal team usage, so evaluation data isn't reachable by anyone who happens to find the URL.
 
 ## Local Setup
 
@@ -196,6 +198,45 @@ The response includes the calculated cost:
 }
 ```
 
+## Authentication
+
+Every route requires a logged-in user except `GET /health`, the login page (`GET`/`POST /login`), `POST /auth/login`, and static assets — this is an internal team tool, not a public product, and there is no public self-registration. New users come from seed data or an authenticated `POST /users` (any logged-in user can create another; there are no roles/admin permissions in this version).
+
+> **Demo login:** username `demo`, password `change-me-local-dev-only` (or whatever `SEED_USER_PASSWORD` is set to — see below). This is a local/unhosted dev tool with no live deployment target yet, so a documented demo credential is fine; it is **not** meant to ship as-is once a real deployment exists.
+
+Set a custom seed password instead of the default:
+
+```bash
+export SEED_USER_PASSWORD="something-only-you-know"
+```
+
+**Session mechanism.** Sessions are server-side (`AuthSession` rows), not JWT — this app treats the database as the single source of truth for all state (see `CLAUDE.md`), and a server-side session keeps that consistent, avoids signing-key management, and makes logout actually revoke access (stateless JWT can't do that without extra blacklist infrastructure). `POST /auth/login` sets an `HttpOnly`, `SameSite=Lax` cookie for the dashboard **and** returns the token in the JSON body, so `curl`/API clients can use `Authorization: Bearer <token>` instead.
+
+**CSRF.** `SameSite=Lax` + `HttpOnly` are relied on as sufficient protection — there's no separate CSRF-token system. This is safe here because there are no authenticated dashboard *write* forms besides the pre-auth login form itself (the dashboard is still browsing-only, per the Web Dashboard section below).
+
+**Rate limiting.** Not built in this version — brute-force protection on login is a deliberate scope cut, not an oversight.
+
+Log in:
+
+```bash
+curl -X POST http://127.0.0.1:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "demo", "password": "change-me-local-dev-only"}'
+```
+
+```json
+{
+  "token": "wXSXEj_4qBI0ahMbVQWmVDwffCL5vI_GBm6ddFQLuyU",
+  "user": {"username": "demo", "id": 1, "created_at": "2026-07-10T23:25:07.591928"}
+}
+```
+
+Use the token on subsequent calls:
+
+```bash
+curl http://127.0.0.1:8000/prompts -H "Authorization: Bearer wXSXEj_4qBI0ahMbVQWmVDwffCL5vI_GBm6ddFQLuyU"
+```
+
 ## Model Response Comparison
 
 Decision-makers often evaluate several model responses for the same prompt. Individual evaluations answer whether one response passed, but comparison answers which response performed best, which response passed most consistently, how each response performed by criterion, and which responses still need evaluation.
@@ -222,7 +263,7 @@ Ranking uses deterministic tie-breakers:
 
 ## Web Dashboard
 
-A read-only, server-rendered dashboard (Jinja2 templates, no JavaScript framework) for browsing the same data the API exposes:
+A read-only, server-rendered dashboard (Jinja2 templates, no JavaScript framework) for browsing the same data the API exposes. Requires login (see Authentication above) — unauthenticated visits redirect to `/login`.
 
 - `/dashboard` — landing page with entity counts
 - `/dashboard/prompts`, `/dashboard/prompts/{id}` — prompt list and detail (with its model responses)
@@ -470,10 +511,12 @@ evalops-dashboard/
       20260710_0001_initial_schema.py
       20260710_0002_rubric_driven_evaluations.py
       20260710_0003_model_pricing_and_cost_tracking.py
+      20260710_0004_authentication.py
   alembic.ini
   src/evalops_dashboard/
     routers/
       __init__.py
+      auth.py
       comparisons.py
       dashboard.py
       evaluations.py
@@ -489,6 +532,7 @@ evalops-dashboard/
       evaluation_detail.html
       evaluations_list.html
       index.html
+      login.html
       prompt_comparison.html
       prompt_detail.html
       prompts_list.html
@@ -497,6 +541,7 @@ evalops-dashboard/
       rubric_detail.html
       rubrics_list.html
     __init__.py
+    auth.py
     comparison.py
     cost.py
     database.py
@@ -507,6 +552,7 @@ evalops-dashboard/
   tests/
     conftest.py
     test_app.py
+    test_auth.py
     test_comparison.py
     test_comparisons.py
     test_cost.py
@@ -527,5 +573,6 @@ evalops-dashboard/
 ## Future Roadmap
 
 - Add generic per-criterion analytics across rubrics and models.
-- Add authentication for internal team usage.
 - Add PostgreSQL support for deployed environments.
+- Add role-based access control (admin vs. member permissions).
+- Add rate limiting / brute-force protection on login.

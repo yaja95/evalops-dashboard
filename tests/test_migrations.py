@@ -27,6 +27,8 @@ def test_alembic_upgrade_head_creates_expected_schema(
         "rubric",
         "rubriccriterion",
         "modelpricing",
+        "user",
+        "authsession",
     }
     assert expected_tables.issubset(first_table_names)
     assert_columns_include(
@@ -47,6 +49,27 @@ def test_alembic_upgrade_head_creates_expected_schema(
         },
     )
     assert_unique_constraint_exists(database_url, "modelpricing", {"provider", "model_name"})
+    assert_columns_include(
+        database_url,
+        "user",
+        {"id", "username", "password_hash", "created_at"},
+    )
+    assert_unique_constraint_exists(database_url, "user", {"username"})
+    assert_columns_include(
+        database_url,
+        "authsession",
+        {"id", "user_id", "token", "created_at", "expires_at"},
+    )
+    assert_unique_constraint_exists(database_url, "authsession", {"token"})
+    assert_foreign_key_exists(
+        database_url,
+        table_name="authsession",
+        constrained_column="user_id",
+        referred_table="user",
+        referred_column="id",
+    )
+    assert_index_exists(database_url, "authsession", {"user_id"})
+    assert_index_exists(database_url, "authsession", {"token"})
     assert_columns_include(
         database_url,
         "evaluation",

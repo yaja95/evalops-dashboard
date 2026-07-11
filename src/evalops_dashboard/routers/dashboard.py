@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
+from evalops_dashboard.auth import CurrentDashboardUser
 from evalops_dashboard.database import get_session
 from evalops_dashboard.models import Evaluation, ModelResponse, Prompt, PromptComparisonRead, Rubric
 from evalops_dashboard.routers.comparisons import compare_prompt_responses
@@ -20,24 +21,35 @@ templates = Jinja2Templates(directory=Path(__file__).resolve().parent.parent / "
 
 
 @router.get("")
-def dashboard_index(request: Request, session: SessionDep):
+def dashboard_index(request: Request, session: SessionDep, current_user: CurrentDashboardUser):
     counts = {
         "prompts": len(session.exec(select(Prompt)).all()),
         "responses": len(session.exec(select(ModelResponse)).all()),
         "rubrics": len(session.exec(select(Rubric)).all()),
         "evaluations": len(session.exec(select(Evaluation)).all()),
     }
-    return templates.TemplateResponse(request, "index.html", {"counts": counts})
+    return templates.TemplateResponse(
+        request, "index.html", {"counts": counts, "current_user": current_user}
+    )
 
 
 @router.get("/prompts")
-def list_prompts_page(request: Request, session: SessionDep):
+def list_prompts_page(request: Request, session: SessionDep, current_user: CurrentDashboardUser):
     prompts = list(session.exec(select(Prompt).order_by(Prompt.id)).all())
-    return templates.TemplateResponse(request, "prompts_list.html", {"prompts": prompts})
+    return templates.TemplateResponse(
+        request,
+        "prompts_list.html",
+        {"prompts": prompts, "current_user": current_user},
+    )
 
 
 @router.get("/prompts/{prompt_id}")
-def prompt_detail_page(prompt_id: int, request: Request, session: SessionDep):
+def prompt_detail_page(
+    prompt_id: int,
+    request: Request,
+    session: SessionDep,
+    current_user: CurrentDashboardUser,
+):
     prompt = session.get(Prompt, prompt_id)
     if prompt is None:
         raise HTTPException(
@@ -55,7 +67,7 @@ def prompt_detail_page(prompt_id: int, request: Request, session: SessionDep):
     return templates.TemplateResponse(
         request,
         "prompt_detail.html",
-        {"prompt": prompt, "responses": responses},
+        {"prompt": prompt, "responses": responses, "current_user": current_user},
     )
 
 
@@ -64,6 +76,7 @@ def prompt_comparison_page(
     prompt_id: int,
     request: Request,
     session: SessionDep,
+    current_user: CurrentDashboardUser,
     rubric_id: int | None = None,
 ):
     prompt = session.get(Prompt, prompt_id)
@@ -89,6 +102,7 @@ def prompt_comparison_page(
                     "selected_rubric_id": None,
                     "comparison": None,
                     "chart_data": None,
+                    "current_user": current_user,
                 },
             )
     elif rubric_id not in applicable_rubric_ids:
@@ -97,7 +111,7 @@ def prompt_comparison_page(
             detail=f"Rubric {rubric_id} has not evaluated any responses for prompt {prompt_id}.",
         )
 
-    comparison = compare_prompt_responses(prompt_id, rubric_id, session)
+    comparison = compare_prompt_responses(prompt_id, rubric_id, session, current_user)
     chart_data = build_chart_rows(comparison) if comparison.comparison_ready else None
 
     return templates.TemplateResponse(
@@ -109,23 +123,29 @@ def prompt_comparison_page(
             "selected_rubric_id": rubric_id,
             "comparison": comparison,
             "chart_data": chart_data,
+            "current_user": current_user,
         },
     )
 
 
 @router.get("/responses")
-def list_responses_page(request: Request, session: SessionDep):
+def list_responses_page(request: Request, session: SessionDep, current_user: CurrentDashboardUser):
     responses = list(session.exec(select(ModelResponse).order_by(ModelResponse.id)).all())
     prompts_by_id = build_prompts_by_id(responses, session)
     return templates.TemplateResponse(
         request,
         "responses_list.html",
-        {"responses": responses, "prompts_by_id": prompts_by_id},
+        {"responses": responses, "prompts_by_id": prompts_by_id, "current_user": current_user},
     )
 
 
 @router.get("/responses/{response_id}")
-def response_detail_page(response_id: int, request: Request, session: SessionDep):
+def response_detail_page(
+    response_id: int,
+    request: Request,
+    session: SessionDep,
+    current_user: CurrentDashboardUser,
+):
     model_response = session.get(ModelResponse, response_id)
     if model_response is None:
         raise HTTPException(
@@ -142,19 +162,28 @@ def response_detail_page(response_id: int, request: Request, session: SessionDep
     return templates.TemplateResponse(
         request,
         "response_detail.html",
-        {"response": model_response, "evaluations": evaluation_reads},
+        {"response": model_response, "evaluations": evaluation_reads, "current_user": current_user},
     )
 
 
 @router.get("/rubrics")
-def list_rubrics_page(request: Request, session: SessionDep):
+def list_rubrics_page(request: Request, session: SessionDep, current_user: CurrentDashboardUser):
     rubrics = list(session.exec(select(Rubric).order_by(Rubric.name, Rubric.version)).all())
     rubric_reads = [build_rubric_response(rubric, session) for rubric in rubrics]
-    return templates.TemplateResponse(request, "rubrics_list.html", {"rubrics": rubric_reads})
+    return templates.TemplateResponse(
+        request,
+        "rubrics_list.html",
+        {"rubrics": rubric_reads, "current_user": current_user},
+    )
 
 
 @router.get("/rubrics/{rubric_id}")
-def rubric_detail_page(rubric_id: int, request: Request, session: SessionDep):
+def rubric_detail_page(
+    rubric_id: int,
+    request: Request,
+    session: SessionDep,
+    current_user: CurrentDashboardUser,
+):
     rubric = session.get(Rubric, rubric_id)
     if rubric is None:
         raise HTTPException(
@@ -163,20 +192,33 @@ def rubric_detail_page(rubric_id: int, request: Request, session: SessionDep):
         )
 
     rubric_read = build_rubric_response(rubric, session)
-    return templates.TemplateResponse(request, "rubric_detail.html", {"rubric": rubric_read})
+    return templates.TemplateResponse(
+        request,
+        "rubric_detail.html",
+        {"rubric": rubric_read, "current_user": current_user},
+    )
 
 
 @router.get("/evaluations")
-def list_evaluations_page(request: Request, session: SessionDep):
+def list_evaluations_page(
+    request: Request, session: SessionDep, current_user: CurrentDashboardUser
+):
     evaluations = list(session.exec(select(Evaluation).order_by(Evaluation.id)).all())
     evaluation_reads = build_evaluation_responses(evaluations, session)
     return templates.TemplateResponse(
-        request, "evaluations_list.html", {"evaluations": evaluation_reads}
+        request,
+        "evaluations_list.html",
+        {"evaluations": evaluation_reads, "current_user": current_user},
     )
 
 
 @router.get("/evaluations/{evaluation_id}")
-def evaluation_detail_page(evaluation_id: int, request: Request, session: SessionDep):
+def evaluation_detail_page(
+    evaluation_id: int,
+    request: Request,
+    session: SessionDep,
+    current_user: CurrentDashboardUser,
+):
     evaluation = session.get(Evaluation, evaluation_id)
     if evaluation is None:
         raise HTTPException(
@@ -186,7 +228,9 @@ def evaluation_detail_page(evaluation_id: int, request: Request, session: Sessio
 
     evaluation_read = build_evaluation_responses([evaluation], session)[0]
     return templates.TemplateResponse(
-        request, "evaluation_detail.html", {"evaluation": evaluation_read}
+        request,
+        "evaluation_detail.html",
+        {"evaluation": evaluation_read, "current_user": current_user},
     )
 
 

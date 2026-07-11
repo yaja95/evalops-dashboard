@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from evalops_dashboard.auth import CurrentUser
 from evalops_dashboard.database import get_session
 from evalops_dashboard.models import (
     CriterionScore,
@@ -32,6 +33,7 @@ UNPROCESSABLE_CONTENT = 422
 def create_evaluation(
     evaluation_create: EvaluationCreate,
     session: SessionDep,
+    current_user: CurrentUser,
 ) -> EvaluationRead:
     evaluation = create_evaluation_from_payload(evaluation_create, session)
     return build_evaluation_responses([evaluation], session)[0]
@@ -104,7 +106,9 @@ def create_evaluation_from_payload(
 
 
 @router.get("/export")
-def export_evaluations_csv(rubric_id: int, session: SessionDep) -> Response:
+def export_evaluations_csv(
+    rubric_id: int, session: SessionDep, current_user: CurrentUser
+) -> Response:
     rubric = session.get(Rubric, rubric_id)
     if rubric is None:
         raise HTTPException(
@@ -152,6 +156,7 @@ async def import_evaluations_csv(
     rubric_id: int,
     session: SessionDep,
     file: UploadFile,
+    current_user: CurrentUser,
 ) -> ImportSummary:
     rubric = session.get(Rubric, rubric_id)
     if rubric is None:
@@ -234,13 +239,17 @@ def parse_row_int(row: dict[str, str], column: str, label: str) -> int:
 
 
 @router.get("", response_model=list[EvaluationRead])
-def list_evaluations(session: SessionDep) -> list[EvaluationRead]:
+def list_evaluations(session: SessionDep, current_user: CurrentUser) -> list[EvaluationRead]:
     evaluations = session.exec(select(Evaluation).order_by(Evaluation.id)).all()
     return build_evaluation_responses(list(evaluations), session)
 
 
 @router.get("/{evaluation_id}", response_model=EvaluationRead)
-def get_evaluation(evaluation_id: int, session: SessionDep) -> EvaluationRead:
+def get_evaluation(
+    evaluation_id: int,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> EvaluationRead:
     evaluation = session.get(Evaluation, evaluation_id)
     if evaluation is None:
         raise HTTPException(

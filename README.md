@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.9.0`
+Current version: `0.10.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually.
 
 ## User
 
@@ -23,6 +23,7 @@ The first user is an AI product or operations team that needs a practical way to
 - SQLModel
 - Jinja2
 - SQLite (default) / PostgreSQL (deployed environments)
+- Anthropic Claude API (LLM-as-judge auto-evaluation)
 - uv
 - pytest
 - Ruff
@@ -47,7 +48,8 @@ The first user is an AI product or operations team that needs a practical way to
 - Model-pricing catalog (provider + model, price per 1k input/output tokens) with server-calculated cost per model response
 - Session-based authentication for internal team usage, required on all routes except `/health`, the login page, and static assets
 - PostgreSQL support for deployed environments, verified in CI against a real Postgres service container
-- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, and seeded data
+- LLM-as-judge auto-evaluation (`POST /evaluations/auto`) using the real Anthropic Claude API, with server-enforced structured scoring via forced tool use
+- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, seeded data, and the LLM judge (mocked, no live API calls in the test suite)
 
 ## Business Value
 
@@ -255,6 +257,28 @@ uv run uvicorn --app-dir src evalops_dashboard.main:app --reload
 ```bash
 EVALOPS_DATABASE_URL="postgresql+psycopg://user:password@host:5432/dbname" uv run pytest postgres_smoke_test/ -v
 ```
+
+## LLM-as-Judge Auto-Evaluation
+
+Every evaluation up to this version has been entered by a human via `POST /evaluations` — ironic for an "AI evaluation" tool that had zero AI in it. Version `0.10.0` adds `POST /evaluations/auto`, which calls the real Anthropic Claude API to score a `ModelResponse` against a `Rubric` and produces the exact same `Evaluation`/`CriterionScore` records a human would create by hand, tagged `evaluator="claude-judge"`.
+
+**How it works.** Given a `response_id` and `rubric_id`, the endpoint builds a prompt from the response text and the rubric's ordered criteria, then calls Claude with a forced tool call (`tool_choice`) whose JSON schema has one required integer property per criterion — bounded by that criterion's `min_score`/`max_score` — plus a `justification` string. This makes Claude's scores structurally guaranteed rather than parsed from free text: if Claude doesn't call the tool, or returns a score outside a criterion's range, the endpoint fails with a clear `502` instead of guessing. The resulting scores and justification are handed to the same validation, weighted-scoring, and persistence logic `POST /evaluations` already uses (`create_evaluation_from_payload`) — the judge module's only job is producing a valid input for that existing code path.
+
+Requires `ANTHROPIC_API_KEY` in the environment; the endpoint returns a `503` if it's missing rather than crashing the app at startup. Model defaults to `claude-haiku-4-5-20251001`, overridable with `ANTHROPIC_JUDGE_MODEL`.
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+curl -X POST http://127.0.0.1:8000/evaluations/auto \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"response_id": 1, "rubric_id": 1}'
+```
+
+The response is the same `EvaluationRead` shape `POST /evaluations` returns.
+
+**What this doesn't do.** No retries or backoff on a failed Anthropic API call — a transient failure surfaces as a `502` and the caller can retry. No cost tracking for the judge's own token usage (see Cost Tracking above, which tracks only the model responses being evaluated, not the judge's own calls). No dashboard trigger — the dashboard remains browsing-only (see Web Dashboard below); this is API-only. No real Anthropic API calls happen in the automated test suite — `get_judge_client` is a FastAPI dependency overridden with a fake in tests, so `uv run pytest` never needs `ANTHROPIC_API_KEY`.
+
+**Verification status.** The mocked test suite covers the full request/response contract (happy path, 404s, malformed-response handling). The error path was also confirmed against the real Anthropic API — an invalid key produced a genuine `401` from Anthropic, which this endpoint correctly turned into a clean `502` rather than crashing. A full successful round trip with a valid key (real scores, real justification) has not yet been run end-to-end — that's a manual follow-up once a funded Anthropic API key is available, not a blocker for what's shipped here.
 
 ## Model Response Comparison
 
@@ -566,6 +590,7 @@ evalops-dashboard/
     comparison.py
     cost.py
     database.py
+    llm_judge.py
     main.py
     models.py
     scoring.py
@@ -581,6 +606,7 @@ evalops-dashboard/
     test_dashboard_comparison.py
     test_evaluations.py
     test_evaluations_csv.py
+    test_llm_judge.py
     test_migrations.py
     test_model_responses.py
     test_pricing.py
@@ -595,4 +621,5 @@ evalops-dashboard/
 
 - Add generic per-criterion analytics across rubrics and models.
 - Add role-based access control (admin vs. member permissions).
+- Track token cost for the LLM judge's own API calls (mirroring the existing model-response cost tracking).
 - Add rate limiting / brute-force protection on login.

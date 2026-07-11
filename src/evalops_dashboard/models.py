@@ -169,6 +169,13 @@ class EvaluationCreate(SQLModel):
         return self
 
 
+class AutoEvaluationCreate(SQLModel):
+    model_config = ConfigDict(extra="forbid")
+
+    response_id: int
+    rubric_id: int
+
+
 class CriterionScoreRead(SQLModel):
     criterion_id: int
     criterion_name: str

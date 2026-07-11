@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.8.0`
+Current version: `0.9.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container.
 
 ## User
 
@@ -22,7 +22,7 @@ The first user is an AI product or operations team that needs a practical way to
 - FastAPI
 - SQLModel
 - Jinja2
-- SQLite
+- SQLite (default) / PostgreSQL (deployed environments)
 - uv
 - pytest
 - Ruff
@@ -46,6 +46,7 @@ The first user is an AI product or operations team that needs a practical way to
 - CSV export/import for evaluation batches, scoped to one rubric per file, with per-row error reporting on import
 - Model-pricing catalog (provider + model, price per 1k input/output tokens) with server-calculated cost per model response
 - Session-based authentication for internal team usage, required on all routes except `/health`, the login page, and static assets
+- PostgreSQL support for deployed environments, verified in CI against a real Postgres service container
 - Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, and seeded data
 
 ## Business Value
@@ -235,6 +236,24 @@ Use the token on subsequent calls:
 
 ```bash
 curl http://127.0.0.1:8000/prompts -H "Authorization: Bearer wXSXEj_4qBI0ahMbVQWmVDwffCL5vI_GBm6ddFQLuyU"
+```
+
+## PostgreSQL Support
+
+This app defaults to SQLite for local development, but runs against PostgreSQL unchanged — `database.py`'s SQLite-specific behavior (`StaticPool`, the `PRAGMA foreign_keys=ON` connect listener) is already gated behind a check for a `sqlite` URL, `alembic/env.py` is dialect-agnostic, and every migration's primary key and reserved-word table name (`user`) compile correctly under Postgres without any code changes.
+
+Point the app at Postgres by setting `EVALOPS_DATABASE_URL`:
+
+```bash
+export EVALOPS_DATABASE_URL="postgresql+psycopg://user:password@host:5432/dbname"
+uv run alembic upgrade head
+uv run uvicorn --app-dir src evalops_dashboard.main:app --reload
+```
+
+**Verification.** There's no bundled `docker-compose.yml` for local Postgres — that's a deliberate scope cut, not an oversight, since there's no way to verify such a file actually works without Docker available in this project's development environment. Instead, PostgreSQL support is verified by a dedicated `postgres-smoke` CI job (`.github/workflows/ci.yml`) that runs the real Alembic migrations and a smoke test against a live `postgres:16` service container on every push. The smoke test itself lives in `postgres_smoke_test/` — deliberately outside `tests/` so it's never picked up by a plain `uv run pytest` and never interacts with `tests/conftest.py`'s in-memory-SQLite test guard — and can be run manually against any real Postgres instance:
+
+```bash
+EVALOPS_DATABASE_URL="postgresql+psycopg://user:password@host:5432/dbname" uv run pytest postgres_smoke_test/ -v
 ```
 
 ## Model Response Comparison
@@ -513,6 +532,8 @@ evalops-dashboard/
       20260710_0003_model_pricing_and_cost_tracking.py
       20260710_0004_authentication.py
   alembic.ini
+  postgres_smoke_test/
+    test_postgres_smoke.py
   src/evalops_dashboard/
     routers/
       __init__.py
@@ -573,6 +594,5 @@ evalops-dashboard/
 ## Future Roadmap
 
 - Add generic per-criterion analytics across rubrics and models.
-- Add PostgreSQL support for deployed environments.
 - Add role-based access control (admin vs. member permissions).
 - Add rate limiting / brute-force protection on login.

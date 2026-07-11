@@ -36,3 +36,45 @@ jobs:
 
       - name: Test
         run: uv run pytest
+
+  postgres-smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: evalops
+          POSTGRES_PASSWORD: evalops
+          POSTGRES_DB: evalops
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      EVALOPS_DATABASE_URL: postgresql+psycopg://evalops:evalops@localhost:5432/evalops
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Run migrations
+        run: uv run alembic upgrade head
+
+      - name: Postgres smoke test
+        run: uv run pytest postgres_smoke_test/ -v

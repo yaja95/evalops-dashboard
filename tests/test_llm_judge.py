@@ -10,16 +10,20 @@ from evalops_dashboard.llm_judge import (
     AnthropicJudgeClient,
     JudgeCriterionScore,
     JudgeResult,
+    OllamaJudgeClient,
     build_judge_prompt,
     build_judge_tool_schema,
     get_judge_client,
-    parse_judge_tool_response,
+    parse_anthropic_tool_response,
+    parse_ollama_tool_response,
 )
 from evalops_dashboard.main import app
 from evalops_dashboard.models import RubricCriterion
 
 
 class FakeJudgeClient:
+    evaluator_name = "claude-judge"
+
     def __init__(self, result: JudgeResult | None = None, error: Exception | None = None) -> None:
         self._result = result
         self._error = error
@@ -95,32 +99,32 @@ def test_build_judge_tool_schema_bounds_each_criterion_by_min_max() -> None:
     assert schema["additionalProperties"] is False
 
 
-def test_parse_judge_tool_response_happy_path() -> None:
+def test_parse_anthropic_tool_response_happy_path() -> None:
     criterion = make_criterion(1)
     message = make_tool_use_message({"criterion_1": 4, "justification": "Solid response."})
 
-    result = parse_judge_tool_response(message, [criterion])
+    result = parse_anthropic_tool_response(message, [criterion])
 
     assert result.scores == [JudgeCriterionScore(criterion_id=1, score=4)]
     assert result.justification == "Solid response."
 
 
-def test_parse_judge_tool_response_raises_502_when_tool_not_called() -> None:
+def test_parse_anthropic_tool_response_raises_502_when_tool_not_called() -> None:
     criterion = make_criterion(1)
     message = SimpleNamespace(content=[SimpleNamespace(type="text", name=None, input=None)])
 
     with pytest.raises(HTTPException) as exc_info:
-        parse_judge_tool_response(message, [criterion])
+        parse_anthropic_tool_response(message, [criterion])
 
     assert exc_info.value.status_code == 502
 
 
-def test_parse_judge_tool_response_raises_502_for_out_of_range_score() -> None:
+def test_parse_anthropic_tool_response_raises_502_for_out_of_range_score() -> None:
     criterion = make_criterion(1, min_score=1, max_score=5)
     message = make_tool_use_message({"criterion_1": 9, "justification": "Too high."})
 
     with pytest.raises(HTTPException) as exc_info:
-        parse_judge_tool_response(message, [criterion])
+        parse_anthropic_tool_response(message, [criterion])
 
     assert exc_info.value.status_code == 502
 
@@ -134,6 +138,61 @@ def test_anthropic_judge_client_raises_503_when_api_key_missing() -> None:
     finally:
         if original is not None:
             os.environ["ANTHROPIC_API_KEY"] = original
+
+
+def make_ollama_tool_call_response(arguments: dict) -> SimpleNamespace:
+    tool_call = SimpleNamespace(
+        function=SimpleNamespace(name="submit_evaluation", arguments=arguments)
+    )
+    return SimpleNamespace(message=SimpleNamespace(tool_calls=[tool_call]))
+
+
+def test_parse_ollama_tool_response_happy_path() -> None:
+    criterion = make_criterion(1)
+    response = make_ollama_tool_call_response({"criterion_1": 3, "justification": "Reasonable."})
+
+    result = parse_ollama_tool_response(response, [criterion])
+
+    assert result.scores == [JudgeCriterionScore(criterion_id=1, score=3)]
+    assert result.justification == "Reasonable."
+
+
+def test_parse_ollama_tool_response_raises_502_when_no_tool_call() -> None:
+    criterion = make_criterion(1)
+    response = SimpleNamespace(message=SimpleNamespace(tool_calls=None))
+
+    with pytest.raises(HTTPException) as exc_info:
+        parse_ollama_tool_response(response, [criterion])
+
+    assert exc_info.value.status_code == 502
+
+
+def test_ollama_judge_client_raises_503_when_unreachable() -> None:
+    os.environ.setdefault("OLLAMA_HOST", "http://127.0.0.1:11434")
+    with pytest.raises(HTTPException) as exc_info:
+        OllamaJudgeClient().evaluate("text", [])
+    assert exc_info.value.status_code == 503
+
+
+def test_get_judge_client_defaults_to_anthropic() -> None:
+    original = os.environ.pop("LLM_JUDGE_PROVIDER", None)
+    try:
+        assert isinstance(get_judge_client(), AnthropicJudgeClient)
+    finally:
+        if original is not None:
+            os.environ["LLM_JUDGE_PROVIDER"] = original
+
+
+def test_get_judge_client_selects_ollama_when_configured() -> None:
+    original = os.environ.get("LLM_JUDGE_PROVIDER")
+    os.environ["LLM_JUDGE_PROVIDER"] = "ollama"
+    try:
+        assert isinstance(get_judge_client(), OllamaJudgeClient)
+    finally:
+        if original is None:
+            os.environ.pop("LLM_JUDGE_PROVIDER", None)
+        else:
+            os.environ["LLM_JUDGE_PROVIDER"] = original
 
 
 # --- router tests (TestClient, dependency override) ---

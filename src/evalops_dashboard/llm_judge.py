@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any, Protocol
 
 import anthropic
+import ollama
 from fastapi import Depends, HTTPException, status
 
 from evalops_dashboard.models import (
@@ -14,6 +15,7 @@ from evalops_dashboard.models import (
 )
 
 ANTHROPIC_JUDGE_MODEL_FALLBACK = "claude-haiku-4-5-20251001"
+OLLAMA_JUDGE_MODEL_FALLBACK = "qwen2.5:1.5b"
 JUDGE_TOOL_NAME = "submit_evaluation"
 
 
@@ -70,23 +72,9 @@ def build_judge_tool_schema(criteria: list[RubricCriterion]) -> dict[str, Any]:
     }
 
 
-def parse_judge_tool_response(message: Any, criteria: list[RubricCriterion]) -> JudgeResult:
-    tool_use_block = next(
-        (
-            block
-            for block in message.content
-            if getattr(block, "type", None) == "tool_use"
-            and getattr(block, "name", None) == JUDGE_TOOL_NAME
-        ),
-        None,
-    )
-    if tool_use_block is None:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM judge did not return a structured evaluation.",
-        )
-
-    tool_input = tool_use_block.input
+def build_judge_result_from_tool_input(
+    tool_input: dict[str, Any], criteria: list[RubricCriterion]
+) -> JudgeResult:
     scores: list[JudgeCriterionScore] = []
     for criterion in criteria:
         key = criterion_property_name(criterion)
@@ -115,11 +103,43 @@ def parse_judge_tool_response(message: Any, criteria: list[RubricCriterion]) -> 
     return JudgeResult(scores=scores, justification=justification.strip())
 
 
+def parse_anthropic_tool_response(message: Any, criteria: list[RubricCriterion]) -> JudgeResult:
+    tool_use_block = next(
+        (
+            block
+            for block in message.content
+            if getattr(block, "type", None) == "tool_use"
+            and getattr(block, "name", None) == JUDGE_TOOL_NAME
+        ),
+        None,
+    )
+    if tool_use_block is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="LLM judge did not return a structured evaluation.",
+        )
+    return build_judge_result_from_tool_input(tool_use_block.input, criteria)
+
+
+def parse_ollama_tool_response(response: Any, criteria: list[RubricCriterion]) -> JudgeResult:
+    tool_calls = response.message.tool_calls
+    if not tool_calls:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="LLM judge did not return a structured evaluation.",
+        )
+    return build_judge_result_from_tool_input(dict(tool_calls[0].function.arguments), criteria)
+
+
 class JudgeClient(Protocol):
+    evaluator_name: str
+
     def evaluate(self, response_text: str, criteria: list[RubricCriterion]) -> JudgeResult: ...
 
 
 class AnthropicJudgeClient:
+    evaluator_name = "claude-judge"
+
     def __init__(self) -> None:
         self._client: anthropic.Anthropic | None = None
 
@@ -160,10 +180,59 @@ class AnthropicJudgeClient:
                 detail=f"LLM judge request failed: {exc}",
             ) from exc
 
-        return parse_judge_tool_response(message, criteria)
+        return parse_anthropic_tool_response(message, criteria)
+
+
+class OllamaJudgeClient:
+    evaluator_name = "ollama-judge"
+
+    def __init__(self) -> None:
+        self._client: ollama.Client | None = None
+
+    def _get_client(self) -> ollama.Client:
+        if self._client is None:
+            host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+            self._client = ollama.Client(host=host)
+        return self._client
+
+    def evaluate(self, response_text: str, criteria: list[RubricCriterion]) -> JudgeResult:
+        client = self._get_client()
+        model = os.getenv("OLLAMA_JUDGE_MODEL", OLLAMA_JUDGE_MODEL_FALLBACK)
+        try:
+            response = client.chat(
+                model=model,
+                messages=[{"role": "user", "content": build_judge_prompt(response_text, criteria)}],
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": JUDGE_TOOL_NAME,
+                            "description": (
+                                "Submit the per-criterion scores and overall justification "
+                                "for this evaluation."
+                            ),
+                            "parameters": build_judge_tool_schema(criteria),
+                        },
+                    }
+                ],
+            )
+        except ConnectionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Ollama is not reachable; the LLM judge is unavailable.",
+            ) from exc
+        except (ollama.ResponseError, ollama.RequestError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"LLM judge request failed: {exc}",
+            ) from exc
+
+        return parse_ollama_tool_response(response, criteria)
 
 
 def get_judge_client() -> JudgeClient:
+    if os.getenv("LLM_JUDGE_PROVIDER", "anthropic").lower() == "ollama":
+        return OllamaJudgeClient()
     return AnthropicJudgeClient()
 
 
@@ -186,7 +255,7 @@ def build_auto_evaluation_create(
         response_id=model_response.id or 0,
         rubric_id=rubric.id or 0,
         justification=judge_result.justification,
-        evaluator="claude-judge",
+        evaluator=judge_client.evaluator_name,
         scores=[
             CriterionScoreCreate(criterion_id=score.criterion_id, score=score.score, notes="")
             for score in judge_result.scores

@@ -9,7 +9,9 @@ from sqlmodel import Session, select
 
 from evalops_dashboard.auth import CurrentUser
 from evalops_dashboard.database import get_session
+from evalops_dashboard.llm_judge import JudgeClientDep, build_auto_evaluation_create
 from evalops_dashboard.models import (
+    AutoEvaluationCreate,
     CriterionScore,
     CriterionScoreCreate,
     CriterionScoreRead,
@@ -35,6 +37,33 @@ def create_evaluation(
     session: SessionDep,
     current_user: CurrentUser,
 ) -> EvaluationRead:
+    evaluation = create_evaluation_from_payload(evaluation_create, session)
+    return build_evaluation_responses([evaluation], session)[0]
+
+
+@router.post("/auto", response_model=EvaluationRead, status_code=status.HTTP_201_CREATED)
+def create_auto_evaluation(
+    auto_evaluation_create: AutoEvaluationCreate,
+    session: SessionDep,
+    current_user: CurrentUser,
+    judge_client: JudgeClientDep,
+) -> EvaluationRead:
+    model_response = session.get(ModelResponse, auto_evaluation_create.response_id)
+    if model_response is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model response {auto_evaluation_create.response_id} was not found.",
+        )
+
+    rubric = session.get(Rubric, auto_evaluation_create.rubric_id)
+    if rubric is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Rubric {auto_evaluation_create.rubric_id} was not found.",
+        )
+
+    criteria = get_rubric_criteria(rubric.id or 0, session)
+    evaluation_create = build_auto_evaluation_create(model_response, rubric, criteria, judge_client)
     evaluation = create_evaluation_from_payload(evaluation_create, session)
     return build_evaluation_responses([evaluation], session)[0]
 

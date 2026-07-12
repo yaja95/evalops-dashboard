@@ -9,7 +9,7 @@ from sqlmodel import Session, SQLModel, select
 
 from evalops_dashboard.auth import (
     SESSION_LIFETIME,
-    CurrentUser,
+    CurrentAdminUser,
     authenticate_user,
     create_session,
     hash_password,
@@ -75,7 +75,9 @@ def login(
     )
     return LoginResponse(
         token=auth_session.token,
-        user=UserRead(id=user.id or 0, username=user.username, created_at=user.created_at),
+        user=UserRead(
+            id=user.id or 0, username=user.username, role=user.role, created_at=user.created_at
+        ),
     )
 
 
@@ -94,9 +96,9 @@ def logout(
 def create_user(
     user_create: UserCreate,
     session: SessionDep,
-    current_user: CurrentUser,
+    current_user: CurrentAdminUser,
 ) -> UserRead:
-    del current_user  # unused; the dependency's role is enforcing authentication
+    del current_user  # unused; the dependency's role is enforcing authorization (admin-only)
 
     existing_user = session.exec(select(User).where(User.username == user_create.username)).first()
     if existing_user is not None:
@@ -105,11 +107,17 @@ def create_user(
             detail=f"Username '{user_create.username}' is already taken.",
         )
 
-    user = User(username=user_create.username, password_hash=hash_password(user_create.password))
+    user = User(
+        username=user_create.username,
+        password_hash=hash_password(user_create.password),
+        role=user_create.role,
+    )
     session.add(user)
     session.commit()
     session.refresh(user)
-    return UserRead(id=user.id or 0, username=user.username, created_at=user.created_at)
+    return UserRead(
+        id=user.id or 0, username=user.username, role=user.role, created_at=user.created_at
+    )
 
 
 @dashboard_auth_router.get("/login")

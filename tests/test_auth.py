@@ -15,7 +15,7 @@ from evalops_dashboard.auth import (
 )
 from evalops_dashboard.database import engine
 from evalops_dashboard.main import app
-from evalops_dashboard.models import LoginAttempt, User
+from evalops_dashboard.models import LoginAttempt, User, UserRole
 
 SEED_USERNAME = "demo"
 
@@ -33,9 +33,9 @@ def _disable_auth_override(override_auth: None) -> Generator[None]:  # noqa: ARG
     yield
 
 
-def create_real_user(username: str, password: str) -> None:
+def create_real_user(username: str, password: str, role: UserRole = UserRole.MEMBER) -> None:
     with Session(engine) as session:
-        user = User(username=username, password_hash=hash_password(password))
+        user = User(username=username, password_hash=hash_password(password), role=role)
         session.add(user)
         session.commit()
 
@@ -133,7 +133,7 @@ def test_create_user_requires_authentication() -> None:
 
 
 def test_create_user_creates_a_user_who_can_then_log_in() -> None:
-    create_real_user("existing", "existing-password")
+    create_real_user("existing", "existing-password", role=UserRole.ADMIN)
 
     with TestClient(app) as client:
         login_response = client.post(
@@ -159,7 +159,7 @@ def test_create_user_creates_a_user_who_can_then_log_in() -> None:
 
 
 def test_create_user_rejects_duplicate_username() -> None:
-    create_real_user("existing2", "existing-password")
+    create_real_user("existing2", "existing-password", role=UserRole.ADMIN)
 
     with TestClient(app) as client:
         login_response = client.post(
@@ -177,6 +177,100 @@ def test_create_user_rejects_duplicate_username() -> None:
 
     assert first.status_code == 201
     assert second.status_code == 409
+
+
+def test_create_user_requires_admin_role() -> None:
+    create_real_user("member-user", "member-password", role=UserRole.MEMBER)
+
+    with TestClient(app) as client:
+        login_response = client.post(
+            "/auth/login", json={"username": "member-user", "password": "member-password"}
+        )
+        token = login_response.json()["token"]
+
+        response = client.post(
+            "/users",
+            json={"username": "shouldnotexist", "password": "password123"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 403
+
+
+def test_new_user_defaults_to_member_role_when_unspecified() -> None:
+    create_real_user("admin-creator", "admin-password", role=UserRole.ADMIN)
+
+    with TestClient(app) as client:
+        login_response = client.post(
+            "/auth/login", json={"username": "admin-creator", "password": "admin-password"}
+        )
+        token = login_response.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        create_response = client.post(
+            "/users",
+            json={"username": "plain-member", "password": "password123"},
+            headers=headers,
+        )
+        assert create_response.status_code == 201
+        assert create_response.json()["role"] == "member"
+
+        new_login = client.post(
+            "/auth/login", json={"username": "plain-member", "password": "password123"}
+        )
+        new_token = new_login.json()["token"]
+
+        forbidden = client.post(
+            "/users",
+            json={"username": "shouldnotexist2", "password": "password123"},
+            headers={"Authorization": f"Bearer {new_token}"},
+        )
+
+    assert forbidden.status_code == 403
+
+
+def test_admin_can_create_user_with_specified_admin_role() -> None:
+    create_real_user("admin-creator2", "admin-password", role=UserRole.ADMIN)
+
+    with TestClient(app) as client:
+        login_response = client.post(
+            "/auth/login", json={"username": "admin-creator2", "password": "admin-password"}
+        )
+        token = login_response.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        create_response = client.post(
+            "/users",
+            json={"username": "new-admin", "password": "password123", "role": "admin"},
+            headers=headers,
+        )
+        assert create_response.status_code == 201
+        assert create_response.json()["role"] == "admin"
+
+        new_login = client.post(
+            "/auth/login", json={"username": "new-admin", "password": "password123"}
+        )
+        new_token = new_login.json()["token"]
+
+        allowed = client.post(
+            "/users",
+            json={"username": "created-by-new-admin", "password": "password123"},
+            headers={"Authorization": f"Bearer {new_token}"},
+        )
+
+    assert allowed.status_code == 201
+
+
+def test_login_response_includes_role() -> None:
+    create_real_user("role-check-user", "some-password", role=UserRole.MEMBER)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/auth/login", json={"username": "role-check-user", "password": "some-password"}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["user"]["role"] == "member"
 
 
 def test_dashboard_login_form_success_redirects_to_dashboard() -> None:

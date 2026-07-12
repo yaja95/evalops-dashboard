@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
+from enum import StrEnum
 
+import sqlalchemy as sa
 from pydantic import ConfigDict, field_validator, model_validator
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
@@ -25,8 +27,14 @@ class PromptCreate(PromptBase):
     pass
 
 
+class UserRole(StrEnum):
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
 class UserBase(SQLModel):
     username: str = Field(min_length=1, max_length=80)
+    role: UserRole = Field(default=UserRole.MEMBER, sa_type=sa.String(length=20))
 
 
 class User(UserBase, table=True):

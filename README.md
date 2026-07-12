@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.12.0`
+Current version: `0.13.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually. Version `0.11.0` adds Ollama as a second, free, self-hosted judge provider, verified end-to-end by a dedicated CI job against a real Ollama service container. Version `0.12.0` adds rate limiting on login attempts, closing a gap this README had named as a deliberate scope cut since Version `0.8.0`.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually. Version `0.11.0` adds Ollama as a second, free, self-hosted judge provider, verified end-to-end by a dedicated CI job against a real Ollama service container. Version `0.12.0` adds rate limiting on login attempts, closing a gap this README had named as a deliberate scope cut since Version `0.8.0`. Version `0.13.0` adds role-based access control (admin vs. member), gating `POST /users` — account creation — to admins only.
 
 ## User
 
@@ -50,7 +50,8 @@ The first user is an AI product or operations team that needs a practical way to
 - PostgreSQL support for deployed environments, verified in CI against a real Postgres service container
 - LLM-as-judge auto-evaluation (`POST /evaluations/auto`) with a swappable Anthropic Claude (default) or Ollama (free, local) provider, both with server-enforced structured scoring via tool calling
 - Rate limiting on login attempts, per username, DB-backed, applied to both the JSON and dashboard-form login routes
-- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, login rate limiting, seeded data, and the LLM judge (mocked, no live API calls in the test suite)
+- Role-based access control (admin vs. member) — `POST /users` (account creation) requires an admin; every other route is unchanged, open to any authenticated member
+- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, login rate limiting, role-based access control, seeded data, and the LLM judge (mocked, no live API calls in the test suite)
 
 ## Business Value
 
@@ -204,7 +205,9 @@ The response includes the calculated cost:
 
 ## Authentication
 
-Every route requires a logged-in user except `GET /health`, the login page (`GET`/`POST /login`), `POST /auth/login`, and static assets — this is an internal team tool, not a public product, and there is no public self-registration. New users come from seed data or an authenticated `POST /users` (any logged-in user can create another; there are no roles/admin permissions in this version).
+Every route requires a logged-in user except `GET /health`, the login page (`GET`/`POST /login`), `POST /auth/login`, and static assets — this is an internal team tool, not a public product, and there is no public self-registration. New users come from seed data or `POST /users`.
+
+**Roles.** Every user is `admin` or `member` (defaults to `member`). The only route this currently gates is `POST /users` — creating a new account requires an admin. Everything else (prompts, responses, rubrics, evaluations, the LLM judge, the pricing catalog) is unchanged and open to any authenticated user regardless of role; this is a deliberately narrow first cut, not a general permission matrix. An admin creating a user can specify the new account's `role` in the request body (defaulting to `member` if omitted) — safe to allow here specifically because the endpoint is already admin-gated, unlike, say, `cost_usd` or `overall_score`, which stay off every client-submittable schema everywhere because there's no equivalent trusted-caller boundary protecting them. The seeded `demo` user is `admin`.
 
 > **Demo login:** username `demo`, password `change-me-local-dev-only` (or whatever `SEED_USER_PASSWORD` is set to — see below). This is a local/unhosted dev tool with no live deployment target yet, so a documented demo credential is fine; it is **not** meant to ship as-is once a real deployment exists.
 
@@ -570,6 +573,7 @@ evalops-dashboard/
       20260710_0003_model_pricing_and_cost_tracking.py
       20260710_0004_authentication.py
       20260712_0005_login_rate_limiting.py
+      20260712_0006_role_based_access_control.py
   alembic.ini
   ollama_smoke_test/
     test_ollama_smoke.py
@@ -637,5 +641,4 @@ evalops-dashboard/
 ## Future Roadmap
 
 - Add generic per-criterion analytics across rubrics and models.
-- Add role-based access control (admin vs. member permissions).
 - Track token cost for the LLM judge's own API calls (mirroring the existing model-response cost tracking).

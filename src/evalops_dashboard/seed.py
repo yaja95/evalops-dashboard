@@ -13,6 +13,7 @@ from evalops_dashboard.models import (
     Rubric,
     RubricCriterion,
     User,
+    UserRole,
 )
 from evalops_dashboard.scoring import ScoredCriterion, calculate_scoring_result
 
@@ -110,7 +111,7 @@ def ensure_seed_user(session: Session) -> User:
         return user
 
     password = os.getenv("SEED_USER_PASSWORD", SEED_USER_PASSWORD_FALLBACK)
-    user = User(username=SEED_USERNAME, password_hash=hash_password(password))
+    user = User(username=SEED_USERNAME, password_hash=hash_password(password), role=UserRole.ADMIN)
     session.add(user)
     session.commit()
     session.refresh(user)

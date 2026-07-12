@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from evalops_dashboard.auth import CurrentUser
+from evalops_dashboard.cost import calculate_cost
 from evalops_dashboard.database import get_session
 from evalops_dashboard.llm_judge import JudgeClientDep, build_auto_evaluation_create
 from evalops_dashboard.models import (
@@ -20,6 +21,7 @@ from evalops_dashboard.models import (
     EvaluationRead,
     ImportRowError,
     ImportSummary,
+    ModelPricing,
     ModelResponse,
     Rubric,
     RubricCriterion,
@@ -63,14 +65,51 @@ def create_auto_evaluation(
         )
 
     criteria = get_rubric_criteria(rubric.id or 0, session)
-    evaluation_create = build_auto_evaluation_create(model_response, rubric, criteria, judge_client)
-    evaluation = create_evaluation_from_payload(evaluation_create, session)
+    if not criteria:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Rubric {rubric.id} has no criteria to score.",
+        )
+
+    judge_result = judge_client.evaluate(model_response.response_text, criteria)
+    evaluation_create = build_auto_evaluation_create(
+        model_response, rubric, judge_result, judge_client.evaluator_name
+    )
+
+    judge_cost_usd = None
+    if judge_result.input_tokens is not None and judge_result.output_tokens is not None:
+        judge_pricing = session.exec(
+            select(ModelPricing).where(
+                ModelPricing.provider == judge_client.provider,
+                ModelPricing.model_name == judge_result.model,
+            )
+        ).first()
+        if judge_pricing is not None:
+            judge_cost_usd = calculate_cost(
+                input_tokens=judge_result.input_tokens,
+                output_tokens=judge_result.output_tokens,
+                input_price_per_1k_tokens=judge_pricing.input_price_per_1k_tokens,
+                output_price_per_1k_tokens=judge_pricing.output_price_per_1k_tokens,
+            )
+
+    evaluation = create_evaluation_from_payload(
+        evaluation_create,
+        session,
+        judge_input_tokens=judge_result.input_tokens,
+        judge_output_tokens=judge_result.output_tokens,
+        judge_model=judge_result.model,
+        judge_cost_usd=judge_cost_usd,
+    )
     return build_evaluation_responses([evaluation], session)[0]
 
 
 def create_evaluation_from_payload(
     evaluation_create: EvaluationCreate,
     session: Session,
+    judge_input_tokens: int | None = None,
+    judge_output_tokens: int | None = None,
+    judge_model: str | None = None,
+    judge_cost_usd: float | None = None,
 ) -> Evaluation:
     model_response = session.get(ModelResponse, evaluation_create.response_id)
     if model_response is None:
@@ -107,6 +146,10 @@ def create_evaluation_from_payload(
         passed=scoring_result.passed,
         justification=evaluation_create.justification,
         evaluator=evaluation_create.evaluator,
+        judge_input_tokens=judge_input_tokens,
+        judge_output_tokens=judge_output_tokens,
+        judge_model=judge_model,
+        judge_cost_usd=judge_cost_usd,
     )
 
     try:
@@ -417,6 +460,10 @@ def build_evaluation_responses(
                     build_criterion_score_response(criterion_score, criteria_by_id)
                     for criterion_score in scores_by_evaluation_id.get(evaluation.id or 0, [])
                 ],
+                judge_input_tokens=evaluation.judge_input_tokens,
+                judge_output_tokens=evaluation.judge_output_tokens,
+                judge_model=evaluation.judge_model,
+                judge_cost_usd=evaluation.judge_cost_usd,
             )
         )
     return responses

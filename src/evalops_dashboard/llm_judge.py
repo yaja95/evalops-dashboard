@@ -29,6 +29,9 @@ class JudgeCriterionScore:
 class JudgeResult:
     scores: list[JudgeCriterionScore]
     justification: str
+    input_tokens: int | None
+    output_tokens: int | None
+    model: str
 
 
 def criterion_property_name(criterion: RubricCriterion) -> str:
@@ -73,7 +76,11 @@ def build_judge_tool_schema(criteria: list[RubricCriterion]) -> dict[str, Any]:
 
 
 def build_judge_result_from_tool_input(
-    tool_input: dict[str, Any], criteria: list[RubricCriterion]
+    tool_input: dict[str, Any],
+    criteria: list[RubricCriterion],
+    input_tokens: int | None,
+    output_tokens: int | None,
+    model: str,
 ) -> JudgeResult:
     scores: list[JudgeCriterionScore] = []
     for criterion in criteria:
@@ -100,7 +107,13 @@ def build_judge_result_from_tool_input(
             detail="LLM judge did not return a justification.",
         )
 
-    return JudgeResult(scores=scores, justification=justification.strip())
+    return JudgeResult(
+        scores=scores,
+        justification=justification.strip(),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        model=model,
+    )
 
 
 def parse_anthropic_tool_response(message: Any, criteria: list[RubricCriterion]) -> JudgeResult:
@@ -118,7 +131,12 @@ def parse_anthropic_tool_response(message: Any, criteria: list[RubricCriterion])
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM judge did not return a structured evaluation.",
         )
-    return build_judge_result_from_tool_input(tool_use_block.input, criteria)
+    usage = getattr(message, "usage", None)
+    input_tokens = getattr(usage, "input_tokens", None) if usage is not None else None
+    output_tokens = getattr(usage, "output_tokens", None) if usage is not None else None
+    return build_judge_result_from_tool_input(
+        tool_use_block.input, criteria, input_tokens, output_tokens, message.model
+    )
 
 
 def parse_ollama_tool_response(response: Any, criteria: list[RubricCriterion]) -> JudgeResult:
@@ -128,17 +146,25 @@ def parse_ollama_tool_response(response: Any, criteria: list[RubricCriterion]) -
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM judge did not return a structured evaluation.",
         )
-    return build_judge_result_from_tool_input(dict(tool_calls[0].function.arguments), criteria)
+    return build_judge_result_from_tool_input(
+        dict(tool_calls[0].function.arguments),
+        criteria,
+        response.prompt_eval_count,
+        response.eval_count,
+        response.model,
+    )
 
 
 class JudgeClient(Protocol):
     evaluator_name: str
+    provider: str
 
     def evaluate(self, response_text: str, criteria: list[RubricCriterion]) -> JudgeResult: ...
 
 
 class AnthropicJudgeClient:
     evaluator_name = "claude-judge"
+    provider = "anthropic"
 
     def __init__(self) -> None:
         self._client: anthropic.Anthropic | None = None
@@ -185,6 +211,7 @@ class AnthropicJudgeClient:
 
 class OllamaJudgeClient:
     evaluator_name = "ollama-judge"
+    provider = "ollama"
 
     def __init__(self) -> None:
         self._client: ollama.Client | None = None
@@ -242,20 +269,14 @@ JudgeClientDep = Annotated[JudgeClient, Depends(get_judge_client)]
 def build_auto_evaluation_create(
     model_response: ModelResponse,
     rubric: Rubric,
-    criteria: list[RubricCriterion],
-    judge_client: JudgeClient,
+    judge_result: JudgeResult,
+    evaluator_name: str,
 ) -> EvaluationCreate:
-    if not criteria:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Rubric {rubric.id} has no criteria to score.",
-        )
-    judge_result = judge_client.evaluate(model_response.response_text, criteria)
     return EvaluationCreate(
         response_id=model_response.id or 0,
         rubric_id=rubric.id or 0,
         justification=judge_result.justification,
-        evaluator=judge_client.evaluator_name,
+        evaluator=evaluator_name,
         scores=[
             CriterionScoreCreate(criterion_id=score.criterion_id, score=score.score, notes="")
             for score in judge_result.scores

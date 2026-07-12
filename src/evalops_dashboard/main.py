@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="evalops-dashboard",
     summary="A lightweight AI evaluation operations API.",
-    version="0.14.0",
+    version="0.15.0",
     lifespan=lifespan,
 )
 app.include_router(evaluations_router)

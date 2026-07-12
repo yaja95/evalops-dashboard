@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.14.0`
+Current version: `0.15.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually. Version `0.11.0` adds Ollama as a second, free, self-hosted judge provider, verified end-to-end by a dedicated CI job against a real Ollama service container. Version `0.12.0` adds rate limiting on login attempts, closing a gap this README had named as a deliberate scope cut since Version `0.8.0`. Version `0.13.0` adds role-based access control (admin vs. member), gating `POST /users` — account creation — to admins only. Version `0.14.0` adds cross-rubric analytics, aggregating per-criterion scores by criterion name and model across every rubric in the system, not just one prompt's comparison.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually. Version `0.11.0` adds Ollama as a second, free, self-hosted judge provider, verified end-to-end by a dedicated CI job against a real Ollama service container. Version `0.12.0` adds rate limiting on login attempts, closing a gap this README had named as a deliberate scope cut since Version `0.8.0`. Version `0.13.0` adds role-based access control (admin vs. member), gating `POST /users` — account creation — to admins only. Version `0.14.0` adds cross-rubric analytics, aggregating per-criterion scores by criterion name and model across every rubric in the system, not just one prompt's comparison. Version `0.15.0` adds token cost tracking for the LLM judge's own API calls — the last item on this project's backlog.
 
 ## User
 
@@ -52,6 +52,7 @@ The first user is an AI product or operations team that needs a practical way to
 - Rate limiting on login attempts, per username, DB-backed, applied to both the JSON and dashboard-form login routes
 - Role-based access control (admin vs. member) — `POST /users` (account creation) requires an admin; every other route is unchanged, open to any authenticated member
 - Cross-rubric analytics (`GET /analytics/by-criterion`, and `/dashboard/analytics`) — average score per criterion name and per model, aggregated across every rubric that has a criterion with that name
+- Token cost tracking for the LLM judge's own API calls, using the same model-pricing catalog and calculation as model-response cost tracking
 - Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, login rate limiting, role-based access control, cross-rubric analytics, seeded data, and the LLM judge (mocked, no live API calls in the test suite)
 
 ## Business Value
@@ -162,6 +163,8 @@ Formula:
 The stored `cost_usd` is rounded to six decimal places, calculated once at response-creation time (not recalculated later if pricing changes).
 
 If no `model-pricing` entry matches the response's provider/model, or if token counts weren't provided, `cost_usd` is simply `null` — this is a normal, expected case, not an error.
+
+The LLM judge's own API calls (see "LLM-as-Judge Auto-Evaluation" below) use this exact same catalog and formula to track their own cost, distinct from the cost of the response being evaluated.
 
 Create a pricing entry:
 
@@ -294,9 +297,11 @@ Model defaults to `qwen2.5:1.5b`, overridable with `OLLAMA_JUDGE_MODEL`. The end
 
 The response is the same `EvaluationRead` shape `POST /evaluations` returns, regardless of provider.
 
-**What this doesn't do.** No retries or backoff on a failed judge call — a transient failure surfaces as a `502` and the caller can retry. No cost tracking for the judge's own token usage (see Cost Tracking above, which tracks only the model responses being evaluated, not the judge's own calls). No dashboard trigger — the dashboard remains browsing-only (see Web Dashboard below); this is API-only. No real network calls to either provider happen in the automated test suite — `get_judge_client` is a FastAPI dependency overridden with a fake in tests, so `uv run pytest` never needs `ANTHROPIC_API_KEY` or a running Ollama server.
+**Judge cost tracking (Version `0.15.0`).** Every response also includes `judge_input_tokens`, `judge_output_tokens`, `judge_model` — the real token counts and resolved model name from the judge's own API call, read directly from Anthropic's `message.usage`/`message.model` or Ollama's `response.prompt_eval_count`/`eval_count`/`response.model` — and `judge_cost_usd`, calculated from the same `model-pricing` catalog and formula Cost Tracking (above) already uses, keyed by `(provider, judge_model)`. Like `ModelResponse.cost_usd`, an unmatched `model-pricing` entry just leaves `judge_cost_usd` null, not an error; token counts are always recorded regardless. Seed data includes illustrative example pricing for both default judge models (`claude-haiku-4-5-20251001`, `qwen2.5:1.5b`) — illustrative, not real published rates, same spirit as this app's other `*-example-*` seed pricing, just attached to real model names here.
 
-**Verification status.** The mocked test suite covers the full request/response contract for both providers (happy path, 404s, malformed-response handling, provider selection). The Anthropic error path was confirmed against the real API (an invalid key produced a genuine `401`, correctly turned into a `502`), but a full successful round trip with a valid key hasn't been run — that requires a funded account this session didn't have. **The Ollama path doesn't have that gap**: because Ollama is free and runs as a real GitHub Actions service container, `ollama_smoke_test/` gets genuine end-to-end verification (real login, real `POST /evaluations/auto`, real model, real scores) on every push via the `ollama-smoke` CI job — the live proof the Anthropic path is still missing.
+**What this doesn't do.** No retries or backoff on a failed judge call — a transient failure surfaces as a `502` and the caller can retry. No dashboard trigger — the dashboard remains browsing-only (see Web Dashboard below); this is API-only. No real network calls to either provider happen in the automated test suite — `get_judge_client` is a FastAPI dependency overridden with a fake in tests, so `uv run pytest` never needs `ANTHROPIC_API_KEY` or a running Ollama server.
+
+**Verification status.** The mocked test suite covers the full request/response contract for both providers (happy path, 404s, malformed-response handling, provider selection, judge cost calculation with and without matching pricing). The Anthropic error path was confirmed against the real API (an invalid key produced a genuine `401`, correctly turned into a `502`), but a full successful round trip with a valid key hasn't been run — that requires a funded account this session didn't have. **The Ollama path doesn't have that gap**: because Ollama is free and runs as a real GitHub Actions service container, `ollama_smoke_test/` gets genuine end-to-end verification (real login, real `POST /evaluations/auto`, real model, real scores, and — as of Version `0.15.0` — real non-null judge token counts and cost) on every push via the `ollama-smoke` CI job — the live proof the Anthropic path is still missing.
 
 ## Model Response Comparison
 
@@ -608,6 +613,7 @@ evalops-dashboard/
       20260710_0004_authentication.py
       20260712_0005_login_rate_limiting.py
       20260712_0006_role_based_access_control.py
+      20260712_0007_llm_judge_cost_tracking.py
   alembic.ini
   ollama_smoke_test/
     test_ollama_smoke.py
@@ -675,7 +681,3 @@ evalops-dashboard/
   pyproject.toml
   README.md
 ```
-
-## Future Roadmap
-
-- Track token cost for the LLM judge's own API calls (mirroring the existing model-response cost tracking).

@@ -6,11 +6,13 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from evalops_dashboard.cost import calculate_cost
 from evalops_dashboard.llm_judge import (
     AnthropicJudgeClient,
     JudgeCriterionScore,
     JudgeResult,
     OllamaJudgeClient,
+    build_auto_evaluation_create,
     build_judge_prompt,
     build_judge_tool_schema,
     get_judge_client,
@@ -18,11 +20,16 @@ from evalops_dashboard.llm_judge import (
     parse_ollama_tool_response,
 )
 from evalops_dashboard.main import app
-from evalops_dashboard.models import RubricCriterion
+from evalops_dashboard.models import ModelResponse, Rubric, RubricCriterion
+
+FAKE_JUDGE_INPUT_TOKENS = 100
+FAKE_JUDGE_OUTPUT_TOKENS = 50
+FAKE_JUDGE_MODEL = "fake-model"
 
 
 class FakeJudgeClient:
     evaluator_name = "claude-judge"
+    provider = "fake-provider"
 
     def __init__(self, result: JudgeResult | None = None, error: Exception | None = None) -> None:
         self._result = result
@@ -39,6 +46,9 @@ class FakeJudgeClient:
                 for criterion in criteria
             ],
             justification="Default fake justification.",
+            input_tokens=FAKE_JUDGE_INPUT_TOKENS,
+            output_tokens=FAKE_JUDGE_OUTPUT_TOKENS,
+            model=FAKE_JUDGE_MODEL,
         )
 
 
@@ -66,9 +76,16 @@ def make_criterion(criterion_id: int, min_score: int = 1, max_score: int = 5) ->
     )
 
 
-def make_tool_use_message(tool_input: dict) -> SimpleNamespace:
+def make_tool_use_message(
+    tool_input: dict,
+    input_tokens: int = 100,
+    output_tokens: int = 50,
+    model: str = "claude-haiku-4-5-20251001",
+) -> SimpleNamespace:
     return SimpleNamespace(
-        content=[SimpleNamespace(type="tool_use", name="submit_evaluation", input=tool_input)]
+        content=[SimpleNamespace(type="tool_use", name="submit_evaluation", input=tool_input)],
+        usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
+        model=model,
     )
 
 
@@ -107,6 +124,9 @@ def test_parse_anthropic_tool_response_happy_path() -> None:
 
     assert result.scores == [JudgeCriterionScore(criterion_id=1, score=4)]
     assert result.justification == "Solid response."
+    assert result.input_tokens == 100
+    assert result.output_tokens == 50
+    assert result.model == "claude-haiku-4-5-20251001"
 
 
 def test_parse_anthropic_tool_response_raises_502_when_tool_not_called() -> None:
@@ -140,11 +160,21 @@ def test_anthropic_judge_client_raises_503_when_api_key_missing() -> None:
             os.environ["ANTHROPIC_API_KEY"] = original
 
 
-def make_ollama_tool_call_response(arguments: dict) -> SimpleNamespace:
+def make_ollama_tool_call_response(
+    arguments: dict,
+    prompt_eval_count: int = 80,
+    eval_count: int = 40,
+    model: str = "qwen2.5:1.5b",
+) -> SimpleNamespace:
     tool_call = SimpleNamespace(
         function=SimpleNamespace(name="submit_evaluation", arguments=arguments)
     )
-    return SimpleNamespace(message=SimpleNamespace(tool_calls=[tool_call]))
+    return SimpleNamespace(
+        message=SimpleNamespace(tool_calls=[tool_call]),
+        prompt_eval_count=prompt_eval_count,
+        eval_count=eval_count,
+        model=model,
+    )
 
 
 def test_parse_ollama_tool_response_happy_path() -> None:
@@ -155,6 +185,9 @@ def test_parse_ollama_tool_response_happy_path() -> None:
 
     assert result.scores == [JudgeCriterionScore(criterion_id=1, score=3)]
     assert result.justification == "Reasonable."
+    assert result.input_tokens == 80
+    assert result.output_tokens == 40
+    assert result.model == "qwen2.5:1.5b"
 
 
 def test_parse_ollama_tool_response_raises_502_when_no_tool_call() -> None:
@@ -202,6 +235,29 @@ def test_get_judge_client_selects_ollama_when_configured() -> None:
             os.environ["LLM_JUDGE_PROVIDER"] = original
 
 
+def test_build_auto_evaluation_create_maps_judge_result_to_evaluation_create() -> None:
+    model_response = ModelResponse(id=5, prompt_id=1, model_name="m", response_text="r")
+    rubric = Rubric(id=9, name="R", version=1, pass_threshold=4)
+    judge_result = JudgeResult(
+        scores=[JudgeCriterionScore(criterion_id=1, score=4)],
+        justification="Good response.",
+        input_tokens=10,
+        output_tokens=5,
+        model="test-model",
+    )
+
+    evaluation_create = build_auto_evaluation_create(
+        model_response, rubric, judge_result, "claude-judge"
+    )
+
+    assert evaluation_create.response_id == 5
+    assert evaluation_create.rubric_id == 9
+    assert evaluation_create.evaluator == "claude-judge"
+    assert evaluation_create.justification == "Good response."
+    assert evaluation_create.scores[0].criterion_id == 1
+    assert evaluation_create.scores[0].score == 4
+
+
 # --- router tests (TestClient, dependency override) ---
 
 
@@ -221,6 +277,41 @@ def test_create_auto_evaluation_happy_path() -> None:
     assert body["rubric_id"] == rubric["id"]
     assert body["evaluator"] == "claude-judge"
     assert len(body["scores"]) == len(rubric["criteria"])
+    assert body["judge_input_tokens"] == FAKE_JUDGE_INPUT_TOKENS
+    assert body["judge_output_tokens"] == FAKE_JUDGE_OUTPUT_TOKENS
+    assert body["judge_model"] == FAKE_JUDGE_MODEL
+    assert body["judge_cost_usd"] is None  # no matching ModelPricing seeded for "fake-provider"
+
+
+def test_create_auto_evaluation_records_and_calculates_judge_cost() -> None:
+    with TestClient(app) as client:
+        pricing_response = client.post(
+            "/model-pricing",
+            json={
+                "provider": "fake-provider",
+                "model_name": FAKE_JUDGE_MODEL,
+                "input_price_per_1k_tokens": 0.01,
+                "output_price_per_1k_tokens": 0.02,
+            },
+        )
+        assert pricing_response.status_code == 201
+
+        response_id = create_response(client)
+        rubric = create_rubric(client, "Auto Evaluation Judge Cost")
+
+        response = client.post(
+            "/evaluations/auto",
+            json={"response_id": response_id, "rubric_id": rubric["id"]},
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["judge_input_tokens"] == FAKE_JUDGE_INPUT_TOKENS
+    assert body["judge_output_tokens"] == FAKE_JUDGE_OUTPUT_TOKENS
+    assert body["judge_model"] == FAKE_JUDGE_MODEL
+    assert body["judge_cost_usd"] == calculate_cost(
+        FAKE_JUDGE_INPUT_TOKENS, FAKE_JUDGE_OUTPUT_TOKENS, 0.01, 0.02
+    )
 
 
 def test_create_auto_evaluation_returns_404_for_missing_response() -> None:

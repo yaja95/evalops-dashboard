@@ -53,3 +53,15 @@ def test_auto_evaluation_against_live_ollama() -> None:
     for score in body["scores"]:
         assert 1 <= score["score"] <= 5
     assert body["justification"]
+
+    # Judge cost tracking: real token counts from the live Ollama call, and a
+    # real non-null cost since ensure_seed_judge_pricing seeds a ModelPricing
+    # row matching OLLAMA_JUDGE_MODEL_FALLBACK -- unlike Anthropic, this is
+    # the one path that can be genuinely verified end-to-end here.
+    assert body["judge_input_tokens"] is not None
+    assert body["judge_input_tokens"] > 0
+    assert body["judge_output_tokens"] is not None
+    assert body["judge_output_tokens"] > 0
+    assert body["judge_model"] == os.environ.get("OLLAMA_JUDGE_MODEL", "qwen2.5:1.5b")
+    assert body["judge_cost_usd"] is not None
+    assert body["judge_cost_usd"] > 0

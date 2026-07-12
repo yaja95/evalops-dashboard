@@ -4,6 +4,10 @@ from sqlmodel import Session, select
 
 from evalops_dashboard.auth import hash_password
 from evalops_dashboard.cost import calculate_cost
+from evalops_dashboard.llm_judge import (
+    ANTHROPIC_JUDGE_MODEL_FALLBACK,
+    OLLAMA_JUDGE_MODEL_FALLBACK,
+)
 from evalops_dashboard.models import (
     CriterionScore,
     Evaluation,
@@ -28,6 +32,7 @@ SEED_USER_PASSWORD_FALLBACK = "change-me-local-dev-only"  # documented dev-only 
 def seed_database(session: Session) -> None:
     ensure_seed_user(session)
     pricing = ensure_seed_pricing(session)
+    ensure_seed_judge_pricing(session)
     prompt = ensure_seed_prompt(session)
     responses = ensure_seed_responses(session, prompt, pricing)
     rubric = ensure_seed_rubric(session)
@@ -103,6 +108,43 @@ def ensure_seed_pricing(session: Session) -> dict[str, ModelPricing]:
             select(ModelPricing).where(ModelPricing.provider == SEED_PROVIDER)
         ).all()
     }
+
+
+def ensure_seed_judge_pricing(session: Session) -> None:
+    """Illustrative example rates for the LLM judge's default models, not real
+    published pricing — same spirit as ensure_seed_pricing's "gpt-example-*"
+    rows, just attached to real model names, so the illustrative-ness needs to
+    be stated explicitly here rather than being obvious from a fake name.
+
+    Deliberately a separate function rather than folded into
+    ensure_seed_pricing: that function's idempotency check is scoped to
+    ModelPricing.provider == SEED_PROVIDER ("openai-example"), so rows with a
+    different provider would never be found as "already existing" and would
+    be re-inserted on every restart, hitting ModelPricing's
+    UniqueConstraint("provider", "model_name"). This checks each
+    (provider, model_name) pair directly instead.
+    """
+    expected_pricing = [
+        ("anthropic", ANTHROPIC_JUDGE_MODEL_FALLBACK, 0.001, 0.005),
+        ("ollama", OLLAMA_JUDGE_MODEL_FALLBACK, 0.0001, 0.0002),
+    ]
+    for provider, model_name, input_price, output_price in expected_pricing:
+        existing = session.exec(
+            select(ModelPricing).where(
+                ModelPricing.provider == provider,
+                ModelPricing.model_name == model_name,
+            )
+        ).first()
+        if existing is None:
+            session.add(
+                ModelPricing(
+                    provider=provider,
+                    model_name=model_name,
+                    input_price_per_1k_tokens=input_price,
+                    output_price_per_1k_tokens=output_price,
+                )
+            )
+    session.commit()
 
 
 def ensure_seed_user(session: Session) -> User:

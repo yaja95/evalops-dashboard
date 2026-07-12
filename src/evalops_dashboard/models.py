@@ -135,6 +135,10 @@ class EvaluationBase(SQLModel):
 class Evaluation(EvaluationBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=utc_now)
+    judge_input_tokens: int | None = Field(default=None)
+    judge_output_tokens: int | None = Field(default=None)
+    judge_model: str | None = Field(default=None, max_length=120)
+    judge_cost_usd: float | None = Field(default=None)
 
 
 class CriterionScoreBase(SQLModel):
@@ -211,6 +215,10 @@ class EvaluationRead(SQLModel):
     evaluator: str
     created_at: datetime
     scores: list[CriterionScoreRead]
+    judge_input_tokens: int | None
+    judge_output_tokens: int | None
+    judge_model: str | None
+    judge_cost_usd: float | None
 
 
 class ImportRowError(SQLModel):

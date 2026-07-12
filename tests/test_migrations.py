@@ -89,6 +89,10 @@ def test_alembic_upgrade_head_creates_expected_schema(
             "justification",
             "evaluator",
             "created_at",
+            "judge_input_tokens",
+            "judge_output_tokens",
+            "judge_model",
+            "judge_cost_usd",
         },
     )
     assert_columns_include(

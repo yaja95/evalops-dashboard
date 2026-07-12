@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "evalops-dashboard",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "uvicorn", "--app-dir", "src", "evalops_dashboard.main:app", "--reload"],
+      "port": 8000
+    }
+  ]
+}

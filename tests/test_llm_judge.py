@@ -168,10 +168,17 @@ def test_parse_ollama_tool_response_raises_502_when_no_tool_call() -> None:
 
 
 def test_ollama_judge_client_raises_503_when_unreachable() -> None:
-    os.environ.setdefault("OLLAMA_HOST", "http://127.0.0.1:11434")
-    with pytest.raises(HTTPException) as exc_info:
-        OllamaJudgeClient().evaluate("text", [])
-    assert exc_info.value.status_code == 503
+    original = os.environ.get("OLLAMA_HOST")
+    os.environ["OLLAMA_HOST"] = "http://127.0.0.1:11434"
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            OllamaJudgeClient().evaluate("text", [])
+        assert exc_info.value.status_code == 503
+    finally:
+        if original is None:
+            os.environ.pop("OLLAMA_HOST", None)
+        else:
+            os.environ["OLLAMA_HOST"] = original
 
 
 def test_get_judge_client_defaults_to_anthropic() -> None:

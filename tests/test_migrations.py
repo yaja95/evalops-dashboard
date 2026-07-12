@@ -53,7 +53,7 @@ def test_alembic_upgrade_head_creates_expected_schema(
     assert_columns_include(
         database_url,
         "user",
-        {"id", "username", "password_hash", "created_at"},
+        {"id", "username", "password_hash", "role", "created_at"},
     )
     assert_unique_constraint_exists(database_url, "user", {"username"})
     assert_columns_include(

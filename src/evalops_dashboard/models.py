@@ -358,3 +358,20 @@ class PromptComparisonRead(SQLModel):
     winner_response_id: int | None
     unscored_response_ids: list[int]
     results: list[ComparisonResponseResult]
+
+
+class ModelCriterionAverageRead(SQLModel):
+    model_name: str
+    evaluation_count: int
+    average_score: float
+
+
+class CriterionAnalyticsRead(SQLModel):
+    criterion_name: str
+    evaluation_count: int
+    average_score: float
+    models: list[ModelCriterionAverageRead]
+
+
+class CriteriaAnalyticsRead(SQLModel):
+    criteria: list[CriterionAnalyticsRead]

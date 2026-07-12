@@ -20,6 +20,7 @@ from evalops_dashboard.models import (
     Prompt,
     PromptCreate,
 )
+from evalops_dashboard.routers.analytics import router as analytics_router
 from evalops_dashboard.routers.auth import dashboard_auth_router, users_router
 from evalops_dashboard.routers.auth import router as auth_router
 from evalops_dashboard.routers.comparisons import router as comparisons_router
@@ -44,12 +45,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="evalops-dashboard",
     summary="A lightweight AI evaluation operations API.",
-    version="0.13.0",
+    version="0.14.0",
     lifespan=lifespan,
 )
 app.include_router(evaluations_router)
 app.include_router(rubrics_router)
 app.include_router(comparisons_router)
+app.include_router(analytics_router)
 app.include_router(dashboard_router)
 app.include_router(pricing_router)
 app.include_router(auth_router)

@@ -16,6 +16,15 @@ def test_dashboard_index_shows_section_links_and_counts() -> None:
     assert "Evaluations" in response.text
 
 
+def test_analytics_page_shows_seeded_criterion_charts() -> None:
+    with TestClient(app) as client:
+        response = client.get("/dashboard/analytics")
+
+    assert response.status_code == 200
+    assert "Cross-Rubric Analytics" in response.text
+    assert "Clarity" in response.text
+
+
 def test_prompts_list_shows_seeded_prompt() -> None:
     with TestClient(app) as client:
         response = client.get("/dashboard/prompts")

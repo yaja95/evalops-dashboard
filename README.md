@@ -12,6 +12,20 @@ This project provides a small operational foundation for evaluation workflows: c
 
 Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually. Version `0.11.0` adds Ollama as a second, free, self-hosted judge provider, verified end-to-end by a dedicated CI job against a real Ollama service container. Version `0.12.0` adds rate limiting on login attempts, closing a gap this README had named as a deliberate scope cut since Version `0.8.0`. Version `0.13.0` adds role-based access control (admin vs. member), gating `POST /users` — account creation — to admins only. Version `0.14.0` adds cross-rubric analytics, aggregating per-criterion scores by criterion name and model across every rubric in the system, not just one prompt's comparison. Version `0.15.0` adds token cost tracking for the LLM judge's own API calls — the last item on this project's backlog.
 
+## Screenshots
+
+Session-based login — no public self-registration:
+
+![Login](docs/screenshots/login.png)
+
+Model-response comparison, ranked by weighted overall score with a winner call-out and criterion-level breakdown:
+
+![Response comparison](docs/screenshots/comparison.png)
+
+Cross-rubric analytics — average score per criterion name and model, aggregated across every rubric that has a criterion with that name:
+
+![Cross-rubric analytics](docs/screenshots/analytics.png)
+
 ## User
 
 The first user is an AI product or operations team that needs a practical way to track prompt experiments and evaluation results before investing in a larger internal platform.
@@ -363,6 +377,8 @@ Also available as a dashboard page, `/dashboard/analytics` (see Web Dashboard be
 
 A read-only, server-rendered dashboard (Jinja2 templates, no JavaScript framework) for browsing the same data the API exposes. Requires login (see Authentication above) — unauthenticated visits redirect to `/login`.
 
+![Dashboard landing page](docs/screenshots/dashboard.png)
+
 - `/dashboard` — landing page with entity counts
 - `/dashboard/analytics` — cross-rubric analytics charts, one per criterion name, bars being the per-model average, visualizing `GET /analytics/by-criterion`
 - `/dashboard/prompts`, `/dashboard/prompts/{id}` — prompt list and detail (with its model responses)
@@ -370,6 +386,8 @@ A read-only, server-rendered dashboard (Jinja2 templates, no JavaScript framewor
 - `/dashboard/rubrics`, `/dashboard/rubrics/{id}` — rubric list and detail (with its criteria)
 - `/dashboard/evaluations`, `/dashboard/evaluations/{id}` — evaluation list and detail (with per-criterion scores)
 - `/dashboard/prompts/{id}/comparison` — comparison charts (quality, pass rate, criterion performance, latency) for a prompt's model responses under a selected rubric, visualizing `GET /prompts/{id}/comparison`. If a prompt has evaluations under more than one rubric, a plain HTML form lets you pick which one; with exactly one applicable rubric it's auto-selected. Charts are static server-rendered bars (widths computed server-side, no client-side JavaScript) — consistent with the rest of the dashboard.
+
+![Evaluations list](docs/screenshots/evaluations.png)
 
 The rubric detail page includes an Export CSV link (`GET /evaluations/export?rubric_id={id}`) for downloading that rubric's evaluations.
 

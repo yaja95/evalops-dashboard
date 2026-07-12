@@ -58,6 +58,12 @@ class AuthSession(SQLModel, table=True):
     expires_at: datetime
 
 
+class LoginAttempt(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    username: str = Field(index=True, max_length=80)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class ModelResponseBase(SQLModel):
     prompt_id: int = Field(foreign_key="prompt.id")
     model_name: str = Field(min_length=1, max_length=120)

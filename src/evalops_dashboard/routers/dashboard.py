@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from evalops_dashboard.auth import CurrentDashboardUser
 from evalops_dashboard.database import get_session
 from evalops_dashboard.models import Evaluation, ModelResponse, Prompt, PromptComparisonRead, Rubric
+from evalops_dashboard.routers.analytics import get_criteria_analytics
 from evalops_dashboard.routers.comparisons import compare_prompt_responses
 from evalops_dashboard.routers.evaluations import build_evaluation_responses
 from evalops_dashboard.routers.rubrics import build_rubric_response
@@ -30,6 +31,30 @@ def dashboard_index(request: Request, session: SessionDep, current_user: Current
     }
     return templates.TemplateResponse(
         request, "index.html", {"counts": counts, "current_user": current_user}
+    )
+
+
+@router.get("/analytics")
+def criteria_analytics_page(
+    request: Request, session: SessionDep, current_user: CurrentDashboardUser
+):
+    analytics = get_criteria_analytics(session, current_user)
+    charts = [
+        CriterionChart(
+            title=criterion.criterion_name,
+            rows=[
+                BarChartRow(
+                    label=model.model_name,
+                    display_value=f"{model.average_score:.2f}",
+                    percent=_percent(model.average_score, MAX_SCORE),
+                )
+                for model in criterion.models
+            ],
+        )
+        for criterion in analytics.criteria
+    ]
+    return templates.TemplateResponse(
+        request, "analytics.html", {"charts": charts, "current_user": current_user}
     )
 
 

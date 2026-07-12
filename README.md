@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.13.0`
+Current version: `0.14.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually. Version `0.11.0` adds Ollama as a second, free, self-hosted judge provider, verified end-to-end by a dedicated CI job against a real Ollama service container. Version `0.12.0` adds rate limiting on login attempts, closing a gap this README had named as a deliberate scope cut since Version `0.8.0`. Version `0.13.0` adds role-based access control (admin vs. member), gating `POST /users` — account creation — to admins only.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually. Version `0.11.0` adds Ollama as a second, free, self-hosted judge provider, verified end-to-end by a dedicated CI job against a real Ollama service container. Version `0.12.0` adds rate limiting on login attempts, closing a gap this README had named as a deliberate scope cut since Version `0.8.0`. Version `0.13.0` adds role-based access control (admin vs. member), gating `POST /users` — account creation — to admins only. Version `0.14.0` adds cross-rubric analytics, aggregating per-criterion scores by criterion name and model across every rubric in the system, not just one prompt's comparison.
 
 ## User
 
@@ -51,7 +51,8 @@ The first user is an AI product or operations team that needs a practical way to
 - LLM-as-judge auto-evaluation (`POST /evaluations/auto`) with a swappable Anthropic Claude (default) or Ollama (free, local) provider, both with server-enforced structured scoring via tool calling
 - Rate limiting on login attempts, per username, DB-backed, applied to both the JSON and dashboard-form login routes
 - Role-based access control (admin vs. member) — `POST /users` (account creation) requires an admin; every other route is unchanged, open to any authenticated member
-- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, login rate limiting, role-based access control, seeded data, and the LLM judge (mocked, no live API calls in the test suite)
+- Cross-rubric analytics (`GET /analytics/by-criterion`, and `/dashboard/analytics`) — average score per criterion name and per model, aggregated across every rubric that has a criterion with that name
+- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, login rate limiting, role-based access control, cross-rubric analytics, seeded data, and the LLM judge (mocked, no live API calls in the test suite)
 
 ## Business Value
 
@@ -321,11 +322,44 @@ Ranking uses deterministic tie-breakers:
 
 `comparison_ready` is `true` only when at least two responses have matching evaluations under the selected rubric. `winner_response_id` is the first-ranked response only when comparison is ready; otherwise it is `null`. `unscored_response_ids` lists prompt responses that do not yet have an evaluation under the selected rubric.
 
+## Cross-Rubric Analytics
+
+Model Response Comparison scores responses under exactly one prompt and one rubric. This is the global counterpart: for every distinct criterion *name* across every rubric in the system — not scoped to one rubric or one prompt — what's the average score, and how does that break down by model?
+
+`RubricCriterion.name` is only unique *within* a rubric (`UniqueConstraint("rubric_id", "name")`), so the same name can legitimately exist as different rows in different rubrics. This endpoint groups by that name string, so two rubrics that each happen to have a "Clarity" criterion combine into one "Clarity" entry rather than two separate ones — that's what makes it cross-rubric rather than per-rubric.
+
+Endpoint:
+
+```text
+GET /analytics/by-criterion
+```
+
+No parameters — a single global view. Averages are simple means of raw `CriterionScore.score` values, the same convention every other per-criterion display in this app already uses (criterion `weight` only affects the pass/fail calculation in `scoring.py`, never a displayed average).
+
+```json
+{
+  "criteria": [
+    {
+      "criterion_name": "Clarity",
+      "evaluation_count": 4,
+      "average_score": 4.25,
+      "models": [
+        {"model_name": "gpt-example-balanced", "evaluation_count": 2, "average_score": 4.5},
+        {"model_name": "gpt-example-ops", "evaluation_count": 2, "average_score": 4.0}
+      ]
+    }
+  ]
+}
+```
+
+Also available as a dashboard page, `/dashboard/analytics` (see Web Dashboard below) — one bar chart per criterion name, bars being the per-model breakdown, reusing the same static server-rendered chart macro Model Response Comparison uses.
+
 ## Web Dashboard
 
 A read-only, server-rendered dashboard (Jinja2 templates, no JavaScript framework) for browsing the same data the API exposes. Requires login (see Authentication above) — unauthenticated visits redirect to `/login`.
 
 - `/dashboard` — landing page with entity counts
+- `/dashboard/analytics` — cross-rubric analytics charts, one per criterion name, bars being the per-model average, visualizing `GET /analytics/by-criterion`
 - `/dashboard/prompts`, `/dashboard/prompts/{id}` — prompt list and detail (with its model responses)
 - `/dashboard/responses`, `/dashboard/responses/{id}` — model response list and detail (with its evaluations, provider, token counts, and calculated cost)
 - `/dashboard/rubrics`, `/dashboard/rubrics/{id}` — rubric list and detail (with its criteria)
@@ -582,6 +616,7 @@ evalops-dashboard/
   src/evalops_dashboard/
     routers/
       __init__.py
+      analytics.py
       auth.py
       comparisons.py
       dashboard.py
@@ -594,6 +629,7 @@ evalops-dashboard/
       partials/
         bar_chart.html
         empty_state.html
+      analytics.html
       base.html
       evaluation_detail.html
       evaluations_list.html
@@ -610,6 +646,7 @@ evalops-dashboard/
     auth.py
     comparison.py
     cost.py
+    criteria_analytics.py
     database.py
     llm_judge.py
     main.py
@@ -623,6 +660,7 @@ evalops-dashboard/
     test_comparison.py
     test_comparisons.py
     test_cost.py
+    test_criteria_analytics.py
     test_dashboard.py
     test_dashboard_comparison.py
     test_evaluations.py
@@ -640,5 +678,4 @@ evalops-dashboard/
 
 ## Future Roadmap
 
-- Add generic per-criterion analytics across rubrics and models.
 - Track token cost for the LLM judge's own API calls (mirroring the existing model-response cost tracking).

@@ -2,7 +2,7 @@
 
 `evalops-dashboard` is a lightweight AI evaluation operations API for storing prompts, model responses, reusable rubrics, and auditable criterion-level evaluations.
 
-Current version: `0.11.0`
+Current version: `0.12.0`
 
 ## Business Problem
 
@@ -10,7 +10,7 @@ Teams experimenting with AI often collect prompts, outputs, and quality judgment
 
 This project provides a small operational foundation for evaluation workflows: capture the prompt, capture the model response, apply a reusable rubric, calculate server-controlled results, and make the records available through a simple API.
 
-Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually. Version `0.11.0` adds Ollama as a second, free, self-hosted judge provider, verified end-to-end by a dedicated CI job against a real Ollama service container.
+Version `0.3.0` added read-only model-response comparison for teams deciding which model output is best for a selected prompt and exact rubric version. Version `0.4.0` added a read-only web dashboard for browsing that data without hand-writing API calls. Version `0.5.0` added comparison charts to the dashboard so that comparison is visual, not just tabular. Version `0.6.0` added CSV import/export for evaluation batches, so a team can score a batch of responses in a spreadsheet instead of one API call at a time. Version `0.7.0` added a model-pricing catalog and server-calculated cost tracking for model responses, so token usage translates into dollar cost without trusting a client-submitted figure. Version `0.8.0` adds session-based authentication for internal team usage — every route except `/health`, the login page, and static assets now requires a logged-in user, with no public self-registration. Version `0.9.0` adds PostgreSQL support for deployed environments, verified by a dedicated CI job that runs migrations and seeds data against a real Postgres service container. Version `0.10.0` adds an LLM-as-judge auto-evaluation endpoint that calls the real Anthropic Claude API to score a model response against a rubric, producing the same records a human evaluator creates manually. Version `0.11.0` adds Ollama as a second, free, self-hosted judge provider, verified end-to-end by a dedicated CI job against a real Ollama service container. Version `0.12.0` adds rate limiting on login attempts, closing a gap this README had named as a deliberate scope cut since Version `0.8.0`.
 
 ## User
 
@@ -49,7 +49,8 @@ The first user is an AI product or operations team that needs a practical way to
 - Session-based authentication for internal team usage, required on all routes except `/health`, the login page, and static assets
 - PostgreSQL support for deployed environments, verified in CI against a real Postgres service container
 - LLM-as-judge auto-evaluation (`POST /evaluations/auto`) with a swappable Anthropic Claude (default) or Ollama (free, local) provider, both with server-enforced structured scoring via tool calling
-- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, seeded data, and the LLM judge (mocked, no live API calls in the test suite)
+- Rate limiting on login attempts, per username, DB-backed, applied to both the JSON and dashboard-form login routes
+- Behavioral test coverage for scoring, validation, migrations, comparisons, the dashboard, cost tracking, authentication, login rate limiting, seeded data, and the LLM judge (mocked, no live API calls in the test suite)
 
 ## Business Value
 
@@ -217,7 +218,7 @@ export SEED_USER_PASSWORD="something-only-you-know"
 
 **CSRF.** `SameSite=Lax` + `HttpOnly` are relied on as sufficient protection — there's no separate CSRF-token system. This is safe here because there are no authenticated dashboard *write* forms besides the pre-auth login form itself (the dashboard is still browsing-only, per the Web Dashboard section below).
 
-**Rate limiting.** Not built in this version — brute-force protection on login is a deliberate scope cut, not an oversight.
+**Rate limiting.** After 5 failed login attempts for a username within 15 minutes, further attempts for that username return `429` regardless of whether the password is correct, until the window passes. A successful login clears the counter. Tracked per-username, not per-IP, DB-backed (a `LoginAttempt` row per failed attempt) rather than in-memory — consistent with this app's "database is the single source of truth for all state" design. Applies to both `POST /auth/login` and the dashboard `POST /login` form. Attempts are recorded the same way whether or not the username actually exists, so rate-limiting itself can't be used to enumerate real usernames — the same principle `authenticate_user`'s generic error message already applies to credential checking. **Known limitation:** because this is username-keyed rather than IP-keyed, someone could deliberately lock out a known username (e.g. `demo`) as a denial-of-service; IP-based limiting would close that but needs correct client-IP extraction behind any future reverse proxy, which is out of scope here.
 
 Log in:
 
@@ -568,6 +569,7 @@ evalops-dashboard/
       20260710_0002_rubric_driven_evaluations.py
       20260710_0003_model_pricing_and_cost_tracking.py
       20260710_0004_authentication.py
+      20260712_0005_login_rate_limiting.py
   alembic.ini
   ollama_smoke_test/
     test_ollama_smoke.py
@@ -637,4 +639,3 @@ evalops-dashboard/
 - Add generic per-criterion analytics across rubrics and models.
 - Add role-based access control (admin vs. member permissions).
 - Track token cost for the LLM judge's own API calls (mirroring the existing model-response cost tracking).
-- Add rate limiting / brute-force protection on login.

@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from evalops_dashboard.auth import (
+    LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+    LOGIN_RATE_LIMIT_WINDOW,
     create_session,
     get_current_dashboard_user,
     get_current_user,
@@ -13,7 +15,7 @@ from evalops_dashboard.auth import (
 )
 from evalops_dashboard.database import engine
 from evalops_dashboard.main import app
-from evalops_dashboard.models import User
+from evalops_dashboard.models import LoginAttempt, User
 
 SEED_USERNAME = "demo"
 
@@ -35,6 +37,12 @@ def create_real_user(username: str, password: str) -> None:
     with Session(engine) as session:
         user = User(username=username, password_hash=hash_password(password))
         session.add(user)
+        session.commit()
+
+
+def insert_login_attempt(username: str, created_at: datetime) -> None:
+    with Session(engine) as session:
+        session.add(LoginAttempt(username=username, created_at=created_at))
         session.commit()
 
 
@@ -215,3 +223,102 @@ def test_session_token_expires() -> None:
         response = client.get("/prompts", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == 401
+
+
+def test_login_blocked_after_max_failed_attempts() -> None:
+    create_real_user("grace", "correct-password")
+
+    with TestClient(app) as client:
+        for _ in range(LOGIN_RATE_LIMIT_MAX_ATTEMPTS):
+            response = client.post(
+                "/auth/login", json={"username": "grace", "password": "wrong-password"}
+            )
+            assert response.status_code == 401
+
+        blocked_response = client.post(
+            "/auth/login", json={"username": "grace", "password": "correct-password"}
+        )
+
+    assert blocked_response.status_code == 429
+    assert (
+        blocked_response.json()["detail"]
+        == "Too many failed login attempts. Please try again later."
+    )
+
+
+def test_login_rate_limit_resets_after_successful_login() -> None:
+    create_real_user("henry", "correct-password")
+
+    with TestClient(app) as client:
+        for _ in range(LOGIN_RATE_LIMIT_MAX_ATTEMPTS - 1):
+            failed = client.post(
+                "/auth/login", json={"username": "henry", "password": "wrong-password"}
+            )
+            assert failed.status_code == 401
+
+        success_response = client.post(
+            "/auth/login", json={"username": "henry", "password": "correct-password"}
+        )
+        assert success_response.status_code == 200
+
+        next_failure = client.post(
+            "/auth/login", json={"username": "henry", "password": "wrong-password"}
+        )
+
+    assert next_failure.status_code == 401
+
+
+def test_login_rate_limit_ignores_attempts_outside_window() -> None:
+    create_real_user("iris", "correct-password")
+    old_timestamp = datetime.now(UTC) - LOGIN_RATE_LIMIT_WINDOW - timedelta(minutes=1)
+    insert_login_attempt("iris", old_timestamp)
+
+    with TestClient(app) as client:
+        for _ in range(LOGIN_RATE_LIMIT_MAX_ATTEMPTS - 1):
+            failed = client.post(
+                "/auth/login", json={"username": "iris", "password": "wrong-password"}
+            )
+            assert failed.status_code == 401
+
+        still_allowed = client.post(
+            "/auth/login", json={"username": "iris", "password": "correct-password"}
+        )
+
+    assert still_allowed.status_code == 200
+
+
+def test_login_rate_limit_applies_to_nonexistent_username() -> None:
+    with TestClient(app) as client:
+        for _ in range(LOGIN_RATE_LIMIT_MAX_ATTEMPTS):
+            response = client.post(
+                "/auth/login", json={"username": "no-such-user-jones", "password": "anything"}
+            )
+            assert response.status_code == 401
+
+        blocked_response = client.post(
+            "/auth/login", json={"username": "no-such-user-jones", "password": "anything"}
+        )
+
+    assert blocked_response.status_code == 429
+
+
+def test_dashboard_login_rate_limited_after_max_failed_attempts() -> None:
+    create_real_user("jack", "correct-password")
+
+    with TestClient(app) as client:
+        for _ in range(LOGIN_RATE_LIMIT_MAX_ATTEMPTS):
+            response = client.post(
+                "/login",
+                data={"username": "jack", "password": "wrong-password"},
+                follow_redirects=False,
+            )
+            assert response.status_code == 401
+
+        blocked_response = client.post(
+            "/login",
+            data={"username": "jack", "password": "correct-password"},
+            follow_redirects=False,
+        )
+
+    assert blocked_response.status_code == 429
+    assert "Too many failed login attempts" in blocked_response.text

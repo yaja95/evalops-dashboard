@@ -7,10 +7,12 @@ from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 from sqlmodel import Session, select
 
 from evalops_dashboard.database import get_session
-from evalops_dashboard.models import AuthSession, User
+from evalops_dashboard.models import AuthSession, LoginAttempt, User
 
 SESSION_TOKEN_BYTES = 32
 SESSION_LIFETIME = timedelta(days=7)
+LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5
+LOGIN_RATE_LIMIT_WINDOW = timedelta(minutes=15)
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -53,6 +55,33 @@ def authenticate_user(username: str, password: str, session: Session) -> User | 
     if not verify_password(password, user.password_hash):
         return None
     return user
+
+
+def is_login_rate_limited(username: str, session: Session) -> bool:
+    """Recorded per-username, not per-IP or per-user-row — deliberately applies the
+    same way whether or not `username` actually exists (see authenticate_user's
+    anti-enumeration note above), so rate-limiting itself can't be used to probe
+    which usernames are real.
+    """
+    window_start = datetime.now(UTC) - LOGIN_RATE_LIMIT_WINDOW
+    recent_attempts = session.exec(
+        select(LoginAttempt).where(
+            LoginAttempt.username == username,
+            LoginAttempt.created_at >= window_start,
+        )
+    ).all()
+    return len(recent_attempts) >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS
+
+
+def record_login_attempt_result(username: str, succeeded: bool, session: Session) -> None:
+    if succeeded:
+        for attempt in session.exec(
+            select(LoginAttempt).where(LoginAttempt.username == username)
+        ).all():
+            session.delete(attempt)
+    else:
+        session.add(LoginAttempt(username=username, created_at=datetime.now(UTC)))
+    session.commit()
 
 
 def resolve_session_token(session: Session, token: str) -> User | None:

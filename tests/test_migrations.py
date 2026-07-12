@@ -29,6 +29,7 @@ def test_alembic_upgrade_head_creates_expected_schema(
         "modelpricing",
         "user",
         "authsession",
+        "loginattempt",
     }
     assert expected_tables.issubset(first_table_names)
     assert_columns_include(
@@ -70,6 +71,12 @@ def test_alembic_upgrade_head_creates_expected_schema(
     )
     assert_index_exists(database_url, "authsession", {"user_id"})
     assert_index_exists(database_url, "authsession", {"token"})
+    assert_columns_include(
+        database_url,
+        "loginattempt",
+        {"id", "username", "created_at"},
+    )
+    assert_index_exists(database_url, "loginattempt", {"username"})
     assert_columns_include(
         database_url,
         "evaluation",

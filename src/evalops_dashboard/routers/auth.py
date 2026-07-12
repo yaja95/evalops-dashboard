@@ -14,6 +14,8 @@ from evalops_dashboard.auth import (
     create_session,
     hash_password,
     invalidate_session,
+    is_login_rate_limited,
+    record_login_attempt_result,
     resolve_token_from_request,
 )
 from evalops_dashboard.database import get_session
@@ -23,6 +25,7 @@ SessionDep = Annotated[Session, Depends(get_session)]
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent.parent / "templates")
 
 INVALID_CREDENTIALS_DETAIL = "Invalid username or password."
+RATE_LIMIT_DETAIL = "Too many failed login attempts. Please try again later."
 
 
 class LoginRequest(SQLModel):
@@ -48,7 +51,14 @@ def login(
     response: Response,
     session: SessionDep,
 ) -> LoginResponse:
+    if is_login_rate_limited(login_request.username, session):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=RATE_LIMIT_DETAIL,
+        )
+
     user = authenticate_user(login_request.username, login_request.password, session)
+    record_login_attempt_result(login_request.username, succeeded=user is not None, session=session)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -115,7 +125,16 @@ def login_submit(
     password: Annotated[str, Form()],
     next: Annotated[str, Form()] = "/dashboard",
 ):
+    if is_login_rate_limited(username, session):
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {"error": RATE_LIMIT_DETAIL, "next": next},
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     user = authenticate_user(username, password, session)
+    record_login_attempt_result(username, succeeded=user is not None, session=session)
     if user is None:
         return templates.TemplateResponse(
             request,
